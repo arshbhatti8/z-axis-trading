@@ -21,6 +21,7 @@ interface GexData {
   ticker: string;
   spot_price: number;
   total_gex: number;
+  zero_gamma?: number;
   most_negative: GexItem[];
   most_positive: GexItem[];
 }
@@ -41,6 +42,7 @@ export const TradingViewWidget = () => {
 
   const [gexData, setGexData] = useState<GexData | null>(null);
   const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string}[]>([]);
+  const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
 
   // Keep track of the current candle for real-time updates
   const currentCandleRef = useRef<any>(null);
@@ -310,6 +312,11 @@ export const TradingViewWidget = () => {
         if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'negative' });
       }
       setGexPositions(positions);
+      if (gexData.zero_gamma) {
+        setZeroGammaY(seriesRef.current.priceToCoordinate(gexData.zero_gamma));
+      } else {
+        setZeroGammaY(null);
+      }
       animationFrameId = requestAnimationFrame(syncPositions);
     };
     
@@ -389,10 +396,43 @@ export const TradingViewWidget = () => {
             backdropFilter: 'blur(2px)'
           }}>
             <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
-            <span>{(pos.gex / 1e6).toFixed(1)}M</span>
+            <span>{(pos.gex / 1e9).toFixed(1)}B</span>
           </div>
         );
       })}
+
+      {/* Zero Gamma Level Line */}
+      {zeroGammaY !== null && gexData?.zero_gamma && (
+        <div style={{
+          position: 'absolute',
+          left: 0,
+          right: '56px',
+          top: zeroGammaY,
+          height: '1px',
+          borderTop: '2px dashed #eab308',
+          zIndex: 4,
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          opacity: 0.8
+        }}>
+          <div style={{
+            position: 'absolute',
+            left: '10px',
+            top: '-24px',
+            background: 'rgba(234, 179, 8, 0.15)',
+            border: '1px solid #eab308',
+            color: '#eab308',
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            backdropFilter: 'blur(4px)'
+          }}>
+            Zero Gamma: ${gexData.zero_gamma.toFixed(2)}
+          </div>
+        </div>
+      )}
 
       {hoveredData && (
         <div className="chart-overlay">

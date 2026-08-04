@@ -2,6 +2,7 @@ import os
 import requests
 import datetime
 import asyncio
+import math
 import yfinance as yf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,6 +75,18 @@ def fetch_options_data(ticker: str, expiration_date: str):
         
     return {"results": all_results}
 
+def norm_pdf(x):
+    return math.exp(-x**2 / 2.0) / math.sqrt(2 * math.pi)
+
+def bs_gamma(S, K, T, r, sigma):
+    if T <= 0.0001 or sigma <= 0.0001 or S <= 0: 
+        return 0.0
+    try:
+        d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+        return norm_pdf(d1) / (S * sigma * math.sqrt(T))
+    except Exception:
+        return 0.0
+
 def calculate_gex(options_data):
     total_gex = 0.0
     strike_gex = {}
@@ -93,10 +106,14 @@ def calculate_gex(options_data):
         gamma = greeks.get("gamma") or 0.0
         oi = item.get("open_interest", 0)
         
+        # Step 1: Scaling to 1% move -> Spot_Price^2 * 0.01
+        scaling_factor = (spot_price ** 2) * 0.01
+        
+        # Step 3: Dealer positioning
         if contract_type == "call":
-            gex = gamma * oi * 100 * spot_price
+            gex = gamma * oi * 100 * scaling_factor
         elif contract_type == "put":
-            gex = -gamma * oi * 100 * spot_price
+            gex = -gamma * oi * 100 * scaling_factor
         else:
             continue
             
@@ -105,6 +122,70 @@ def calculate_gex(options_data):
         
     return total_gex, strike_gex, spot_price
 
+def calculate_zero_gamma_level(options_data, current_spot):
+    results = options_data.get("results", [])
+    if not results or current_spot <= 0:
+        return None
+        
+    # Simulate spot price moving from -10% to +10% in 0.5% increments
+    min_spot = current_spot * 0.90
+    max_spot = current_spot * 1.10
+    step = current_spot * 0.005
+    
+    options = []
+    
+    try:
+        exp_date_str = results[0].get("details", {}).get("expiration_date")
+        exp_date = datetime.datetime.strptime(exp_date_str, "%Y-%m-%d").date()
+        today = datetime.datetime.today().date()
+        days_to_expiry = (exp_date - today).days
+        T = max(days_to_expiry / 365.0, 0.001)
+    except:
+        T = 0.001
+        
+    for item in results:
+        details = item.get("details", {})
+        ctype = details.get("contract_type", "").lower()
+        if ctype not in ("call", "put"): continue
+            
+        strike = details.get("strike_price", 0.0)
+        greeks = item.get("greeks") or {}
+        iv = greeks.get("implied_volatility") or 0.20 # Fallback to 20% IV
+        oi = item.get("open_interest", 0)
+        
+        sign = 1 if ctype == "call" else -1
+        options.append({"strike": strike, "iv": iv, "oi": oi, "sign": sign})
+        
+    spot_levels = []
+    gex_levels = []
+    
+    test_spot = min_spot
+    while test_spot <= max_spot:
+        total_gex = 0.0
+        scaling = (test_spot ** 2) * 0.01
+        
+        for opt in options:
+            gamma = bs_gamma(test_spot, opt["strike"], T, 0.02, opt["iv"])
+            total_gex += gamma * opt["oi"] * 100 * scaling * opt["sign"]
+            
+        spot_levels.append(test_spot)
+        gex_levels.append(total_gex)
+        test_spot += step
+        
+    zero_gamma = None
+    for i in range(1, len(gex_levels)):
+        # Look for the crossover point
+        if (gex_levels[i-1] < 0 and gex_levels[i] >= 0) or (gex_levels[i-1] > 0 and gex_levels[i] <= 0):
+            y1, y2 = gex_levels[i-1], gex_levels[i]
+            x1, x2 = spot_levels[i-1], spot_levels[i]
+            if y2 - y1 != 0:
+                zero_gamma = x1 - y1 * (x2 - x1) / (y2 - y1)
+            else:
+                zero_gamma = x1
+            break
+            
+    return round(zero_gamma, 2) if zero_gamma else None
+
 def get_gex_payload(ticker: str):
     today = get_0dte_date()
     data = fetch_options_data(ticker, today)
@@ -112,6 +193,7 @@ def get_gex_payload(ticker: str):
         return {"error": "Invalid API key or data not found"}
         
     total_gex, gex_by_strike, spot_price = calculate_gex(data)
+    zero_gamma = calculate_zero_gamma_level(data, spot_price)
     
     sorted_strikes = sorted(gex_by_strike.items(), key=lambda item: item[1])
     most_negative = [{"strike": k, "gex": v} for k, v in sorted_strikes[:5]]
@@ -122,6 +204,7 @@ def get_gex_payload(ticker: str):
         "expiration_date": today,
         "spot_price": spot_price,
         "total_gex": total_gex,
+        "zero_gamma": zero_gamma,
         "most_negative": most_negative,
         "most_positive": most_positive
     }

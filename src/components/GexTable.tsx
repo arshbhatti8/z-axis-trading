@@ -9,6 +9,7 @@ interface GexData {
   ticker: string;
   spot_price: number;
   total_gex: number;
+  zero_gamma?: number;
   most_negative: GexItem[];
   most_positive: GexItem[];
 }
@@ -40,15 +41,20 @@ export const GexTable = () => {
       <div style={{ marginBottom: '16px' }}>
         <div style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Total 0DTE GEX ({data.ticker})</div>
         <div style={{ fontSize: '24px', fontWeight: 'bold', color: data.total_gex >= 0 ? '#10b981' : '#ef4444' }}>
-          {data.total_gex >= 0 ? '+' : ''}{(data.total_gex / 1e6).toFixed(2)}M
+          {data.total_gex >= 0 ? '+' : ''}{(data.total_gex / 1e9).toFixed(2)}B
         </div>
+        {data.zero_gamma && (
+          <div style={{ marginTop: '4px', fontSize: '13px', color: '#eab308', fontWeight: 'bold' }}>
+            Zero Gamma: ${data.zero_gamma.toFixed(2)}
+          </div>
+        )}
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}>
             <th style={{ padding: '8px 4px', fontWeight: 'normal' }}>Strike</th>
-            <th style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 'normal' }}>GEX (M)</th>
+            <th style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 'normal' }}>GEX (B)</th>
           </tr>
         </thead>
         <tbody>
@@ -61,7 +67,7 @@ export const GexTable = () => {
                 color: item.gex >= 0 ? '#10b981' : '#ef4444',
                 fontWeight: '600'
               }}>
-                {item.gex >= 0 ? '+' : ''}{(item.gex / 1e6).toFixed(2)}
+                {item.gex >= 0 ? '+' : ''}{(item.gex / 1e9).toFixed(2)}
               </td>
             </tr>
           ))}
