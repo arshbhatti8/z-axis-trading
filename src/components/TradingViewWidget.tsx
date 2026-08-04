@@ -26,7 +26,7 @@ interface GexData {
   most_positive: GexItem[];
 }
 
-export const TradingViewWidget = () => {
+export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
@@ -157,10 +157,17 @@ export const TradingViewWidget = () => {
       }
     });
 
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries.length === 0 || entries[0].target !== chartContainerRef.current) return;
+      handleResize();
+    });
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current);
+    }
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, []); // Initialize chart once
@@ -174,28 +181,43 @@ export const TradingViewWidget = () => {
     setIsConnected(false);
     setGexData(null); // Clear GEX data on ticker change
 
-    const loadFallbackData = async () => {
+    const loadHistoryData = async () => {
+      const tradierToken = import.meta.env.VITE_TRADIER_API_KEY;
       try {
-        setIsFallback(true);
-        const res = await fetch(`http://127.0.0.1:8000/api/history/${activeTicker}?interval=${activeTimeframe}`);
+        const url = new URL(`http://127.0.0.1:8000/api/history/${activeTicker}`);
+        url.searchParams.append('interval', activeTimeframe);
+        if (tradierToken) {
+          url.searchParams.append('tradier_token', tradierToken);
+        }
+        
+        const res = await fetch(url.toString());
         const json = await res.json();
+        
+        if (json.source === 'yahoo') {
+          setIsFallback(true);
+        } else {
+          setIsFallback(false);
+        }
+        
         if (json.data && json.data.length > 0) {
           seriesRef.current?.setData(json.data);
           const lastCandle = json.data[json.data.length - 1];
           setCurrentPrice(lastCandle.close);
         }
       } catch (e) {
-        console.error("Fallback data fetch failed:", e);
+        console.error("History data fetch failed:", e);
       }
     };
 
     const connectTradier = async () => {
       const tradierToken = import.meta.env.VITE_TRADIER_API_KEY;
       
+      // Load historical data first before opening WS
+      await loadHistoryData();
+      
       if (!tradierToken) {
         console.warn("VITE_TRADIER_API_KEY is not set. Falling back to Yahoo Finance.");
-        await loadFallbackData();
-        fallbackInterval = window.setInterval(loadFallbackData, 60000);
+        fallbackInterval = window.setInterval(loadHistoryData, 60000);
         return;
       }
 
@@ -264,15 +286,18 @@ export const TradingViewWidget = () => {
 
         sessionWs.onerror = () => {
           console.warn("Tradier WS Error. Falling back.");
-          loadFallbackData();
-          if (!fallbackInterval) fallbackInterval = window.setInterval(loadFallbackData, 60000);
+          setIsFallback(true);
+          fallbackInterval = window.setInterval(loadHistoryData, 60000);
         };
-
-        sessionWs.onclose = () => setIsConnected(false);
+        
+        sessionWs.onclose = () => {
+          console.warn("Tradier WS Closed.");
+          setIsConnected(false);
+        };
       } catch (err) {
         console.error("Tradier WS Connection Error:", err);
-        loadFallbackData();
-        fallbackInterval = window.setInterval(loadFallbackData, 60000);
+        setIsFallback(true);
+        fallbackInterval = window.setInterval(loadHistoryData, 60000);
       }
     };
 
@@ -316,7 +341,7 @@ export const TradingViewWidget = () => {
     let animationFrameId: number;
     
     // Broadcast for the side panel table
-    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: gexData }));
+    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: gexData } }));
 
     const syncPositions = () => {
       const positions = [];
@@ -342,7 +367,7 @@ export const TradingViewWidget = () => {
   }, [gexData]);
 
   return (
-    <div className="glass-panel chart-section" style={{ position: 'relative' }}>
+    <div className="glass-panel chart-section" style={{ flex: 1, position: 'relative', width: '100%', minHeight: 0, minWidth: 0 }}>
       <div className="chart-header">
         <div className="chart-title" style={{ flex: 1 }}>
           <form onSubmit={handleTickerSubmit} className="ticker-search-form" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>

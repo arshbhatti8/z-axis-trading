@@ -6,6 +6,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+.env
 
 node_modules
 dist
@@ -22,3 +23,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+scratch_probe.py
+scratch_spy.py
+scratch_trades.py
+analyze_10m_window.py
+analyze_options.py
+analyze_spx.py
+analyze_trades.py
+bugs.txt

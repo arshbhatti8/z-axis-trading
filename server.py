@@ -233,9 +233,81 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
     except Exception as e:
         manager.disconnect(websocket)
 
+def get_tradier_history(ticker: str, interval: str, tradier_token: str):
+    headers = {"Authorization": f"Bearer {tradier_token}", "Accept": "application/json"}
+    is_intraday = interval in ["1m", "5m", "15m", "30m", "1h"]
+    
+    if is_intraday:
+        t_interval = "15min"
+        if interval == "1m": t_interval = "1min"
+        elif interval == "5m": t_interval = "5min"
+        
+        start = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        end = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval={t_interval}&start={start}&end={end}"
+    else:
+        t_interval = "daily"
+        if interval == "1W": t_interval = "weekly"
+        elif interval == "1M": t_interval = "monthly"
+        url = f"https://api.tradier.com/v1/markets/history?symbol={ticker}&interval={t_interval}"
+        
+    res = requests.get(url, headers=headers)
+    res.raise_for_status()
+    data = res.json()
+    
+    formatted_data = []
+    if is_intraday:
+        series = data.get("series", {}).get("data", [])
+        if isinstance(series, dict): series = [series]
+        for d in series:
+            dt = datetime.datetime.strptime(d["time"], "%Y-%m-%dT%H:%M:%S")
+            formatted_data.append({
+                "time": int(dt.timestamp()),
+                "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d.get("volume", 0)
+            })
+    else:
+        history = data.get("history", {}).get("day", [])
+        if isinstance(history, dict): history = [history]
+        for d in history:
+            dt = datetime.datetime.strptime(d["date"], "%Y-%m-%d")
+            formatted_data.append({
+                "time": int(dt.timestamp()),
+                "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d.get("volume", 0)
+            })
+            
+    if not formatted_data:
+        raise ValueError("Empty data from Tradier")
+        
+    if interval in ["30m", "1h"]:
+        tf_seconds = 1800 if interval == "30m" else 3600
+        aggregated = []
+        current = None
+        for d in formatted_data:
+            b_time = d["time"] - (d["time"] % tf_seconds)
+            if not current or current["time"] != b_time:
+                if current: aggregated.append(current)
+                current = {"time": b_time, "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d["volume"]}
+            else:
+                current["high"] = max(current["high"], d["high"])
+                current["low"] = min(current["low"], d["low"])
+                current["close"] = d["close"]
+                current["volume"] += d["volume"]
+        if current: aggregated.append(current)
+        formatted_data = aggregated
+        
+    return formatted_data
+
 @app.get("/api/history/{ticker}")
-def get_history(ticker: str, interval: str = "1m"):
-    """REST endpoint to fetch historical data from Yahoo Finance for a given timeframe"""
+def get_history(ticker: str, interval: str = "1m", tradier_token: str = None):
+    """REST endpoint to fetch historical data from Tradier or Yahoo Finance for a given timeframe"""
+    
+    if tradier_token:
+        try:
+            tradier_data = get_tradier_history(ticker, interval, tradier_token)
+            return {"data": tradier_data, "source": "tradier"}
+        except Exception as e:
+            print(f"Tradier history failed, falling back to Yahoo Finance: {e}")
+            
     try:
         # Map TradingView-style timeframes to yfinance compatible periods/intervals
         if interval == "1m":
@@ -268,7 +340,7 @@ def get_history(ticker: str, interval: str = "1m"):
                 "close": row["Close"],
                 "volume": int(row["Volume"])
             })
-        return {"data": data}
+        return {"data": data, "source": "yahoo"}
     except Exception as e:
         return {"error": str(e), "data": []}
 
