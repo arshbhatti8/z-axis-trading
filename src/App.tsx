@@ -25,7 +25,7 @@ function App() {
       </div>
 
       <main className="main-content">
-        <div style={{ flex: 3, display: 'flex', flexDirection: layout === 'horizontal' ? 'column' : 'row', gap: '24px', minHeight: 0 }}>
+        <div style={{ flex: 3, display: 'flex', flexDirection: layout === 'horizontal' ? 'column' : 'row', gap: '24px', minHeight: 0, minWidth: 0 }}>
           <div style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0, position: 'relative' }}>
             <TradingViewWidget />
           </div>
@@ -42,7 +42,7 @@ function App() {
             0DTE Gamma Exposure
           </h3>
           
-          <GexTable />
+          <GexTable activeCharts={layout === 'single' ? ['primary'] : ['primary', 'secondary']} />
 
         </aside>
       </main>

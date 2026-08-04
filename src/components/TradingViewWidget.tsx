@@ -41,9 +41,10 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
   const [isConnected, setIsConnected] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [gexData, setGexData] = useState<GexData | null>(null);
-  const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string}[]>([]);
+  const [gexPositions, setGexPositions] = useState<{strike: number, topY: number, bottomY: number, gex: number, type: string}[]>([]);
   const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
 
   // Keep track of the current candle for real-time updates
@@ -179,6 +180,7 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     
     setIsFallback(false);
     setIsConnected(false);
+    setIsLoading(true);
     setGexData(null); // Clear GEX data on ticker change
 
     const loadHistoryData = async () => {
@@ -203,9 +205,15 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
           seriesRef.current?.setData(json.data);
           const lastCandle = json.data[json.data.length - 1];
           setCurrentPrice(lastCandle.close);
+          
+          // Bug 9: Autoscale the viewport to fit the new ticker's price level
+          chartRef.current?.timeScale().fitContent();
+          chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
         }
       } catch (e) {
         console.error("History data fetch failed:", e);
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -345,13 +353,28 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
 
     const syncPositions = () => {
       const positions = [];
+      const strikes = [...gexData.most_positive, ...gexData.most_negative].map(p => p.strike).sort((a,b) => a-b);
+      let minGap = 1;
+      if (strikes.length > 1) {
+        const gaps = [];
+        for (let i = 1; i < strikes.length; i++) {
+          const gap = strikes[i] - strikes[i-1];
+          if (gap > 0) gaps.push(gap);
+        }
+        if (gaps.length > 0) {
+          minGap = Math.min(...gaps);
+        }
+      }
+
       for (const item of gexData.most_positive) {
-        const y = seriesRef.current.priceToCoordinate(item.strike);
-        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'positive' });
+        const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
+        const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
+        if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'positive' });
       }
       for (const item of gexData.most_negative) {
-        const y = seriesRef.current.priceToCoordinate(item.strike);
-        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'negative' });
+        const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
+        const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
+        if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'negative' });
       }
       setGexPositions(positions);
       if (gexData.zero_gamma) {
@@ -430,74 +453,78 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
       </div>
       
       {/* GEX Rectangular Overlays */}
-      {gexPositions.map((pos, i) => {
-        const maxGex = Math.max(
-          ...(gexData?.most_positive.map(p => Math.abs(p.gex)) || []),
-          ...(gexData?.most_negative.map(p => Math.abs(p.gex)) || [])
-        );
-        const containerWidth = chartContainerRef.current?.clientWidth || 800;
-        const maxWidth = containerWidth * 0.70;
-        const width = Math.max(30, (Math.abs(pos.gex) / (maxGex || 1)) * maxWidth);
-        const isPos = pos.type === 'positive';
-        
-        return (
-          <div key={i} style={{
-            position: 'absolute',
-            right: '56px', // Right edge of chart (offset by price scale width)
-            top: pos.y - 12, // Center vertically around the strike price
-            width: `${width}px`,
-            height: '24px',
-            backgroundColor: isPos ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
-            border: `1px solid ${isPos ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'}`,
-            borderRight: 'none',
-            zIndex: 5,
-            pointerEvents: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 6px',
-            fontSize: '11px',
-            color: 'rgba(255,255,255,0.8)',
-            borderRadius: '4px 0 0 4px',
-            backdropFilter: 'blur(2px)'
-          }}>
-            <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
-            <span>{(pos.gex / 1e9).toFixed(1)}B</span>
-          </div>
-        );
-      })}
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4, overflow: 'hidden' }}>
+        {gexPositions.map((pos, i) => {
+          const maxGex = Math.max(
+            ...(gexData?.most_positive.map(p => Math.abs(p.gex)) || []),
+            ...(gexData?.most_negative.map(p => Math.abs(p.gex)) || [])
+          );
+          const containerWidth = chartContainerRef.current?.clientWidth || 800;
+          const maxWidth = containerWidth * 0.70;
+          const width = Math.max(30, (Math.abs(pos.gex) / (maxGex || 1)) * maxWidth);
+          const isPos = pos.type === 'positive';
+          
+          const height = Math.max(1, Math.abs(pos.bottomY - pos.topY));
+          
+          return (
+            <div key={i} style={{
+              position: 'absolute',
+              right: '56px', // Right edge of chart (offset by price scale width)
+              top: Math.min(pos.topY, pos.bottomY),
+              width: `${width}px`,
+              height: `${height}px`,
+              backgroundColor: isPos ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+              border: `1px solid ${isPos ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'}`,
+              borderRight: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 6px',
+              fontSize: '11px',
+              color: 'rgba(255,255,255,0.8)',
+              borderRadius: '4px 0 0 4px',
+              backdropFilter: 'blur(2px)'
+            }}>
+              <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
+              <span>{(pos.gex / 1e6).toFixed(1)}M</span>
+            </div>
+          );
+        })}
 
-      {/* Zero Gamma Level Line */}
-      {zeroGammaY !== null && gexData?.zero_gamma && (
-        <div style={{
-          position: 'absolute',
-          left: 0,
-          right: '56px',
-          top: zeroGammaY,
-          height: '1px',
-          borderTop: '2px dashed #eab308',
-          zIndex: 4,
-          pointerEvents: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          opacity: 0.8
-        }}>
+        {/* Zero Gamma Level Line */}
+        {zeroGammaY !== null && gexData?.zero_gamma && (
           <div style={{
             position: 'absolute',
-            left: '10px',
-            top: '-24px',
-            background: 'rgba(234, 179, 8, 0.15)',
-            border: '1px solid #eab308',
-            color: '#eab308',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontSize: '11px',
-            fontWeight: 'bold',
-            backdropFilter: 'blur(4px)'
+            left: 0,
+            right: '56px',
+            top: zeroGammaY,
+            height: '1px',
+            borderTop: '2px dashed #eab308',
+            opacity: 0.8
           }}>
-            Zero Gamma: ${gexData.zero_gamma.toFixed(2)}
+            <div style={{
+              position: 'absolute',
+              left: '10px',
+              top: '-24px',
+              background: 'rgba(234, 179, 8, 0.15)',
+              border: '1px solid #eab308',
+              color: '#eab308',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              backdropFilter: 'blur(4px)',
+              pointerEvents: 'auto'
+            }}>
+              Zero Gamma: ${gexData.zero_gamma.toFixed(2)}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <div 
+        ref={chartContainerRef} 
+        style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0 }} 
+      />
 
       {hoveredData && (
         <div className="chart-overlay">
@@ -524,7 +551,12 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
         </div>
       )}
 
-      <div ref={chartContainerRef} className="chart-container" />
+
+      {isLoading && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(15, 23, 42, 0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        </div>
+      )}
     </div>
   );
 };

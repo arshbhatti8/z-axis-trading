@@ -3,12 +3,19 @@ import requests
 import datetime
 import asyncio
 import math
+import argparse
+import sys
 import yfinance as yf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 
 # --- Configuration ---
+parser = argparse.ArgumentParser()
+parser.add_argument("--log-level", default="info", choices=["info", "debug"])
+args, _ = parser.parse_known_args()
+LOG_LEVEL = args.log_level
+
 API_KEY = os.environ.get("MASSIVE_API_KEY", "YOUR_API_KEY_HERE")
 BASE_URL = "https://api.massive.com/v3" 
 
@@ -68,6 +75,8 @@ def fetch_options_data(ticker: str, expiration_date: str):
             break
             
         data = response.json()
+        if LOG_LEVEL == "debug":
+            print(f"Massive API Response: {data}")
         all_results.extend(data.get("results", []))
         
         url = data.get("next_url")
@@ -220,17 +229,32 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
     """WebSocket endpoint to stream GEX data periodically"""
     await manager.connect(websocket)
     ticker = ticker.upper()
+    
+    async def poll_and_send():
+        try:
+            while True:
+                # Fetch and send data
+                payload = await asyncio.to_thread(get_gex_payload, ticker)
+                await websocket.send_json(payload)
+                
+                # Wait 60 seconds before next update to avoid rate limits
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+            
+    polling_task = asyncio.create_task(poll_and_send())
+    
     try:
         while True:
-            # Fetch and send data
-            payload = get_gex_payload(ticker)
-            await websocket.send_json(payload)
-            
-            # Wait 60 seconds before next update to avoid rate limits
-            await asyncio.sleep(60)
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
+        pass
+    except Exception:
+        pass
+    finally:
+        polling_task.cancel()
         manager.disconnect(websocket)
 
 def get_tradier_history(ticker: str, interval: str, tradier_token: str):
@@ -254,6 +278,8 @@ def get_tradier_history(ticker: str, interval: str, tradier_token: str):
     res = requests.get(url, headers=headers)
     res.raise_for_status()
     data = res.json()
+    if LOG_LEVEL == "debug":
+        print(f"Tradier API Response: {data}")
     
     formatted_data = []
     if is_intraday:
@@ -327,6 +353,8 @@ def get_history(ticker: str, interval: str = "1m", tradier_token: str = None):
             
         ticker_obj = yf.Ticker(ticker.upper())
         df = ticker_obj.history(period=period, interval=yf_interval)
+        if LOG_LEVEL == "debug":
+            print(f"Yahoo Finance DataFrame:\n{df}")
         if df.empty:
             return {"error": "No data found", "data": []}
         
