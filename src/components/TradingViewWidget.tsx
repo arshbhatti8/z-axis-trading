@@ -34,6 +34,8 @@ export const TradingViewWidget = () => {
   
   const [tickerInput, setTickerInput] = useState('SPY');
   const [activeTicker, setActiveTicker] = useState('SPY');
+  const [activeTimeframe, setActiveTimeframe] = useState('1m');
+  const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '1D', '1W', '1M'];
   const [hoveredData, setHoveredData] = useState<ChartOverlayProps | null>(null);
   const [currentPrice, setCurrentPrice] = useState(0.0);
   const [isConnected, setIsConnected] = useState(false);
@@ -56,6 +58,20 @@ export const TradingViewWidget = () => {
     e.preventDefault();
     if (tickerInput.trim()) {
       setActiveTicker(tickerInput.trim().toUpperCase());
+    }
+  };
+
+  const getTimeframeSeconds = (tf: string) => {
+    switch(tf) {
+      case '1m': return 60;
+      case '5m': return 300;
+      case '15m': return 900;
+      case '30m': return 1800;
+      case '1h': return 3600;
+      case '1D': return 86400;
+      case '1W': return 604800;
+      case '1M': return 2592000;
+      default: return 60;
     }
   };
 
@@ -161,7 +177,7 @@ export const TradingViewWidget = () => {
     const loadFallbackData = async () => {
       try {
         setIsFallback(true);
-        const res = await fetch(`http://127.0.0.1:8000/api/history/${activeTicker}`);
+        const res = await fetch(`http://127.0.0.1:8000/api/history/${activeTicker}?interval=${activeTimeframe}`);
         const json = await res.json();
         if (json.data && json.data.length > 0) {
           seriesRef.current?.setData(json.data);
@@ -223,7 +239,8 @@ export const TradingViewWidget = () => {
               const tradePrice = parseFloat(data.price);
               const tradeSize = parseInt(data.size) || 0;
               const tradeTime = data.date ? Math.floor(data.date / 1000) : Math.floor(Date.now() / 1000);
-              const candleTime = tradeTime - (tradeTime % 60);
+              const tfSeconds = getTimeframeSeconds(activeTimeframe);
+              const candleTime = tradeTime - (tradeTime % tfSeconds);
 
               setCurrentPrice(tradePrice);
               let candle = currentCandleRef.current;
@@ -265,7 +282,7 @@ export const TradingViewWidget = () => {
       if (sessionWs) sessionWs.close();
       if (fallbackInterval) window.clearInterval(fallbackInterval);
     };
-  }, [activeTicker]);
+  }, [activeTicker, activeTimeframe]);
 
   // GEX Data Connection / Mock Mode
   useEffect(() => {
@@ -354,6 +371,29 @@ export const TradingViewWidget = () => {
           >
             {isMockMode ? 'MOCK ON' : 'MOCK OFF'}
           </button>
+          
+          {/* Timeframe Selector */}
+          <div style={{ display: 'flex', gap: '4px', marginLeft: '12px', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '6px' }}>
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setActiveTimeframe(tf)}
+                style={{
+                  background: activeTimeframe === tf ? 'rgba(255,255,255,0.15)' : 'transparent',
+                  color: activeTimeframe === tf ? '#fff' : '#94a3b8',
+                  border: 'none',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                }}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+
           <div style={{ fontSize: '12px', color: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444'), marginLeft: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444') }} />
             {isFallback ? 'YAHOO (FALLBACK)' : (isConnected ? 'LIVE' : 'DISCONNECTED')}

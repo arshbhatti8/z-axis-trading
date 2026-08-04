@@ -234,11 +234,27 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
         manager.disconnect(websocket)
 
 @app.get("/api/history/{ticker}")
-def get_history(ticker: str):
-    """Fallback REST endpoint to fetch recent minute-by-minute data from Yahoo Finance"""
+def get_history(ticker: str, interval: str = "1m"):
+    """REST endpoint to fetch historical data from Yahoo Finance for a given timeframe"""
     try:
+        # Map TradingView-style timeframes to yfinance compatible periods/intervals
+        if interval == "1m":
+            period, yf_interval = "7d", "1m"
+        elif interval in ["5m", "15m", "30m"]:
+            period, yf_interval = "60d", interval
+        elif interval == "1h":
+            period, yf_interval = "730d", "60m"
+        elif interval == "1D":
+            period, yf_interval = "max", "1d"
+        elif interval == "1W":
+            period, yf_interval = "max", "1wk"
+        elif interval == "1M":
+            period, yf_interval = "max", "1mo"
+        else:
+            period, yf_interval = "7d", "1m"
+            
         ticker_obj = yf.Ticker(ticker.upper())
-        df = ticker_obj.history(period="1d", interval="1m")
+        df = ticker_obj.history(period=period, interval=yf_interval)
         if df.empty:
             return {"error": "No data found", "data": []}
         
