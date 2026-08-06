@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Search, Activity } from 'lucide-react';
 import { generateMockGex } from '../mocks/gexMock';
 import { GexTable } from './GexTable';
@@ -51,7 +51,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   const [showGexPanel, setShowGexPanel] = useState(true);
   const [gexPanelWidth, setGexPanelWidth] = useState(300);
   const [gexPanelHeight, setGexPanelHeight] = useState(400);
-  const [gexPositions, setGexPositions] = useState<{strike: number, topY: number, bottomY: number, gex: number, type: string}[]>([]);
+  const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string}[]>([]);
   const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
 
   // Keep track of the current candle for real-time updates
@@ -528,19 +528,6 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     // Broadcast for the side panel table
     const syncPositions = () => {
       const positions: any[] = [];
-      const strikes = [...filteredGexData.most_positive, ...filteredGexData.most_negative].map(p => p.strike).sort((a,b) => a-b);
-      
-      let minGap = 1;
-      if (strikes.length > 1) {
-        const gaps = [];
-        for (let i = 1; i < strikes.length; i++) {
-          const gap = strikes[i] - strikes[i-1];
-          if (gap > 0) gaps.push(gap);
-        }
-        if (gaps.length > 0) {
-          minGap = Math.min(...gaps);
-        }
-      }
 
       for (const item of filteredGexData.most_positive) {
         const y = seriesRef.current.priceToCoordinate(item.strike);

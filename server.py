@@ -7,8 +7,13 @@ import argparse
 import sys
 import yfinance as yf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Configuration ---
 parser = argparse.ArgumentParser()
@@ -456,6 +461,11 @@ def get_history(ticker: str, interval: str = "1m", tradier_token: str = None):
     except Exception as e:
         return {"error": str(e), "data": []}
 
+app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+
+@app.exception_handler(404)
+async def custom_404_handler(request, __):
+    return FileResponse("dist/index.html")
 
 if __name__ == "__main__":
     import uvicorn

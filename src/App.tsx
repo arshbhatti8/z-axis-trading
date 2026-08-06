@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { TradingViewWidget } from './components/TradingViewWidget';
-import { GexTable } from './components/GexTable';
 import { PremiumTable } from './components/PremiumTable';
 import { AnomalousTrades } from './components/AnomalousTrades';
 import { Square, Columns, Rows, DollarSign, Activity } from 'lucide-react';

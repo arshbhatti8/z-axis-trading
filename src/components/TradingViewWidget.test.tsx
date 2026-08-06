@@ -24,7 +24,7 @@ vi.mock('lightweight-charts', () => {
 });
 
 // Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
+(globalThis as any).ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
   disconnect() {}
@@ -46,7 +46,7 @@ describe('TradingViewWidget', () => {
   });
 
   it('toggles the 0DTE GEX panel visibility', () => {
-    const { container } = render(<TradingViewWidget chartId="primary" />);
+    render(<TradingViewWidget chartId="primary" />);
     
     // GEX table should be visible by default
     expect(screen.getByText('0DTE Gamma Exposure')).toBeTruthy();
