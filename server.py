@@ -99,10 +99,11 @@ def bs_gamma(S, K, T, r, sigma):
 def calculate_gex(options_data):
     total_gex = 0.0
     strike_gex = {}
+    strike_premium = {}
     
     results = options_data.get("results", [])
     if not results:
-        return total_gex, strike_gex, 0.0
+        return total_gex, strike_gex, 0.0, strike_premium
         
     spot_price = results[0].get("underlying_asset", {}).get("price", 0.0)
     
@@ -118,18 +119,28 @@ def calculate_gex(options_data):
         # Step 1: Scaling to 1% move -> Spot_Price^2 * 0.01
         scaling_factor = (spot_price ** 2) * 0.01
         
+        day_close = item.get("day", {}).get("close")
+        if day_close is None:
+            day_close = details.get("last_price", 0)
+        premium = day_close * oi * 100
+        
+        if strike not in strike_premium:
+            strike_premium[strike] = {"call_premium": 0.0, "put_premium": 0.0}
+            
         # Step 3: Dealer positioning
         if contract_type == "call":
             gex = gamma * oi * 100 * scaling_factor
+            strike_premium[strike]["call_premium"] += premium
         elif contract_type == "put":
             gex = -gamma * oi * 100 * scaling_factor
+            strike_premium[strike]["put_premium"] += premium
         else:
             continue
             
         total_gex += gex
         strike_gex[strike] = strike_gex.get(strike, 0) + gex
         
-    return total_gex, strike_gex, spot_price
+    return total_gex, strike_gex, spot_price, strike_premium
 
 def calculate_zero_gamma_level(options_data, current_spot):
     results = options_data.get("results", [])
@@ -201,12 +212,18 @@ def get_gex_payload(ticker: str):
     if not data:
         return {"error": "Invalid API key or data not found"}
         
-    total_gex, gex_by_strike, spot_price = calculate_gex(data)
+    total_gex, gex_by_strike, spot_price, strike_premium = calculate_gex(data)
     zero_gamma = calculate_zero_gamma_level(data, spot_price)
     
     sorted_strikes = sorted(gex_by_strike.items(), key=lambda item: item[1])
-    most_negative = [{"strike": k, "gex": v} for k, v in sorted_strikes[:5]]
-    most_positive = [{"strike": k, "gex": v} for k, v in sorted_strikes[-5:]]
+    most_negative = [{"strike": k, "gex": v} for k, v in sorted_strikes if v < 0]
+    most_positive = [{"strike": k, "gex": v} for k, v in sorted_strikes if v >= 0]
+    
+    premium_data = [
+        {"strike": k, "call_premium": v["call_premium"], "put_premium": v["put_premium"]}
+        for k, v in strike_premium.items()
+    ]
+    premium_data.sort(key=lambda x: x["call_premium"] + x["put_premium"], reverse=True)
     
     return {
         "ticker": ticker,
@@ -215,7 +232,8 @@ def get_gex_payload(ticker: str):
         "total_gex": total_gex,
         "zero_gamma": zero_gamma,
         "most_negative": most_negative,
-        "most_positive": most_positive
+        "most_positive": most_positive,
+        "premium_data": premium_data
     }
 
 @app.get("/api/gex/{ticker}")
@@ -245,6 +263,72 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
             pass
             
     polling_task = asyncio.create_task(poll_and_send())
+    
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        polling_task.cancel()
+        manager.disconnect(websocket)
+
+@app.websocket("/ws/anomalous/{ticker}")
+async def websocket_anomalous(websocket: WebSocket, ticker: str):
+    """WebSocket endpoint to stream anomalous trades"""
+    await manager.connect(websocket)
+    ticker = ticker.upper()
+    tradier_key = os.environ.get("VITE_TRADIER_API_KEY")
+    
+    async def poll_anomalous():
+        try:
+            while True:
+                if not tradier_key:
+                    # Mock data
+                    mock_trade = {
+                        "type": "anomalous_trade",
+                        "ticker": ticker,
+                        "size": 15000,
+                        "price": 150.0,
+                        "time": datetime.datetime.now().isoformat()
+                    }
+                    await websocket.send_json(mock_trade)
+                    await asyncio.sleep(5)
+                else:
+                    try:
+                        start = (datetime.datetime.now() - datetime.timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
+                        end = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval=tick&start={start}&end={end}"
+                        headers = {"Authorization": f"Bearer {tradier_key}", "Accept": "application/json"}
+                        
+                        response = await asyncio.to_thread(requests.get, url, headers=headers)
+                        if response.status_code == 200:
+                            data = response.json()
+                            series = data.get("series", {}).get("data", [])
+                            if isinstance(series, dict):
+                                series = [series]
+                            
+                            for trade in series:
+                                if trade.get("volume", 0) > 10000:
+                                    anomalous = {
+                                        "type": "anomalous_trade",
+                                        "ticker": ticker,
+                                        "size": trade.get("volume"),
+                                        "price": trade.get("price", 0.0),
+                                        "time": trade.get("time")
+                                    }
+                                    await websocket.send_json(anomalous)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+            
+    polling_task = asyncio.create_task(poll_anomalous())
     
     try:
         while True:
@@ -375,4 +459,4 @@ def get_history(ticker: str, interval: str = "1m", tradier_token: str = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)

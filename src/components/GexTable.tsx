@@ -30,15 +30,29 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', gap: '32px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', padding: '0 8px' }}>
-        <span style={{ fontSize: '12px', color: '#94a3b8' }}>Sort by:</span>
-        <select 
-          value={sortBy} 
-          onChange={(e) => setSortBy(e.target.value as 'strike' | 'gex')}
-          style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', outline: 'none' }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Sort by:</span>
+          <select 
+            value={sortBy} 
+            onChange={(e) => setSortBy(e.target.value as 'strike' | 'gex')}
+            style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', outline: 'none' }}
+          >
+            <option value="strike">Strike</option>
+            <option value="gex">GEX Size</option>
+          </select>
+        </div>
+        <button
+          onClick={() => {
+            activeCharts.forEach(id => {
+              const ticker = dataMap[id]?.ticker;
+              if (ticker) window.dispatchEvent(new CustomEvent('requestGexRefresh', { detail: { ticker } }));
+            });
+          }}
+          style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
         >
-          <option value="strike">Strike</option>
-          <option value="gex">GEX Size</option>
-        </select>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          Refresh
+        </button>
       </div>
       {activeCharts.map(chartId => {
         const data = dataMap[chartId];

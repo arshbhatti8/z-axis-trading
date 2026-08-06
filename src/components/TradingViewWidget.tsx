@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 import { Search } from 'lucide-react';
 import { generateMockGex } from '../mocks/gexMock';
 
@@ -26,10 +26,12 @@ interface GexData {
   most_positive: GexItem[];
 }
 
-export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string }) => {
+export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chartId?: string, gexLimit?: number }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+  const volumeSeriesRef = useRef<any>(null);
+  const vwapSeriesRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   
   const [tickerInput, setTickerInput] = useState('SPY');
@@ -39,6 +41,7 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
   const [hoveredData, setHoveredData] = useState<ChartOverlayProps | null>(null);
   const [currentPrice, setCurrentPrice] = useState(0.0);
   const [isConnected, setIsConnected] = useState(false);
+  const [gexConnected, setGexConnected] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -133,6 +136,23 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     });
     seriesRef.current = candlestickSeries;
 
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      color: '#3b82f6',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '', // set as an overlay
+    });
+    volumeSeriesRef.current = volumeSeries;
+
+    chart.priceScale('').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    const vwapSeries = chart.addSeries(LineSeries, {
+      color: '#eab308',
+      lineWidth: 2,
+    });
+    vwapSeriesRef.current = vwapSeries;
+
     chart.subscribeCrosshairMove((param: any) => {
       if (
         param.point === undefined ||
@@ -175,6 +195,7 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
 
   // Tradier WebSocket connection logic
   useEffect(() => {
+    let isCancelled = false;
     let sessionWs: WebSocket | null = null;
     let fallbackInterval: number | null = null;
     
@@ -186,13 +207,14 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     const loadHistoryData = async () => {
       const tradierToken = import.meta.env.VITE_TRADIER_API_KEY;
       try {
-        const url = new URL(`http://127.0.0.1:8000/api/history/${activeTicker}`);
+        const url = new URL(`http://${window.location.hostname}:8001/api/history/${activeTicker}`);
         url.searchParams.append('interval', activeTimeframe);
         if (tradierToken) {
           url.searchParams.append('tradier_token', tradierToken);
         }
         
         const res = await fetch(url.toString());
+        if (isCancelled) return;
         const json = await res.json();
         
         if (json.source === 'yahoo') {
@@ -203,6 +225,29 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
         
         if (json.data && json.data.length > 0) {
           seriesRef.current?.setData(json.data);
+          
+          const vwapData: any[] = [];
+          const volumeData: any[] = [];
+          let cumulativeVolume = 0;
+          let cumulativeVP = 0;
+
+          json.data.forEach((d: any) => {
+            const vol = d.volume || 0;
+            const typicalPrice = (d.high + d.low + d.close) / 3;
+            cumulativeVolume += vol;
+            cumulativeVP += vol * typicalPrice;
+            const vwap = cumulativeVolume > 0 ? cumulativeVP / cumulativeVolume : d.close;
+            vwapData.push({ time: d.time, value: vwap });
+            volumeData.push({ 
+              time: d.time, 
+              value: vol, 
+              color: d.close >= d.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)' 
+            });
+          });
+
+          volumeSeriesRef.current?.setData(volumeData);
+          vwapSeriesRef.current?.setData(vwapData);
+
           const lastCandle = json.data[json.data.length - 1];
           setCurrentPrice(lastCandle.close);
           
@@ -238,12 +283,17 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
           }
         });
         
+        if (isCancelled) return;
         if (!sessionRes.ok) throw new Error('Failed to create Tradier session');
         
         const sessionData = await sessionRes.json();
         const sessionId = sessionData.stream.sessionid;
 
         sessionWs = new WebSocket('wss://ws.tradier.com/v1/markets/events');
+        if (isCancelled) {
+          sessionWs.close();
+          return;
+        }
         wsRef.current = sessionWs;
 
         sessionWs.onopen = () => {
@@ -259,6 +309,8 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
           sessionWs?.send(JSON.stringify(payload));
           
           seriesRef.current?.setData([]);
+          volumeSeriesRef.current?.setData([]);
+          vwapSeriesRef.current?.setData([]);
           currentCandleRef.current = null;
         };
 
@@ -270,22 +322,42 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
               const tradeSize = parseInt(data.size) || 0;
               const tradeTime = data.date ? Math.floor(data.date / 1000) : Math.floor(Date.now() / 1000);
               const tfSeconds = getTimeframeSeconds(activeTimeframe);
-              const candleTime = tradeTime - (tradeTime % tfSeconds);
+              const bucketTime = tradeTime - (tradeTime % tfSeconds);
 
               setCurrentPrice(tradePrice);
-              let candle = currentCandleRef.current;
               
-              if (!candle || candle.time !== candleTime) {
-                candle = { time: candleTime, open: tradePrice, high: tradePrice, low: tradePrice, close: tradePrice, volume: tradeSize };
+              if (!currentCandleRef.current || currentCandleRef.current.time !== bucketTime) {
+                currentCandleRef.current = {
+                  time: bucketTime,
+                  open: tradePrice,
+                  high: tradePrice,
+                  low: tradePrice,
+                  close: tradePrice,
+                  volume: tradeSize,
+                  _cumulativeVP: tradePrice * tradeSize,
+                  _cumulativeVolume: tradeSize
+                };
               } else {
-                candle.high = Math.max(candle.high, tradePrice);
-                candle.low = Math.min(candle.low, tradePrice);
-                candle.close = tradePrice;
-                candle.volume += tradeSize;
+                currentCandleRef.current.high = Math.max(currentCandleRef.current.high, tradePrice);
+                currentCandleRef.current.low = Math.min(currentCandleRef.current.low, tradePrice);
+                currentCandleRef.current.close = tradePrice;
+                currentCandleRef.current.volume += tradeSize;
+                currentCandleRef.current._cumulativeVP += tradePrice * tradeSize;
+                currentCandleRef.current._cumulativeVolume += tradeSize;
               }
+
+              seriesRef.current?.update(currentCandleRef.current);
               
-              currentCandleRef.current = candle;
-              seriesRef.current?.update(candle);
+              const vwap = currentCandleRef.current._cumulativeVolume > 0 
+                ? currentCandleRef.current._cumulativeVP / currentCandleRef.current._cumulativeVolume 
+                : tradePrice;
+                
+              vwapSeriesRef.current?.update({ time: bucketTime, value: vwap });
+              volumeSeriesRef.current?.update({ 
+                time: bucketTime, 
+                value: currentCandleRef.current.volume,
+                color: currentCandleRef.current.close >= currentCandleRef.current.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
+              });
             }
           } catch (e) {
             console.error("Error parsing WS message:", e);
@@ -312,23 +384,44 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     connectTradier();
 
     return () => {
+      isCancelled = true;
       if (sessionWs) sessionWs.close();
       if (fallbackInterval) window.clearInterval(fallbackInterval);
     };
   }, [activeTicker, activeTimeframe]);
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail?.ticker === activeTicker) {
+        setRefreshKey(k => k + 1);
+      }
+    };
+    window.addEventListener('requestGexRefresh', handler);
+    return () => window.removeEventListener('requestGexRefresh', handler);
+  }, [activeTicker]);
+
   // GEX Data Connection / Mock Mode
   useEffect(() => {
     if (isMockMode) {
+      setGexConnected(true);
       // Mock Mode Interval
       setGexData(generateMockGex(activeTicker, currentPriceRef.current));
       const interval = setInterval(() => {
         setGexData(generateMockGex(activeTicker, currentPriceRef.current));
       }, 1500); // constantly changing every 1.5s
-      return () => clearInterval(interval);
+      return () => {
+        setGexConnected(false);
+        clearInterval(interval);
+      };
     } else {
       // Live GEX WebSocket
-      const gexWs = new WebSocket(`ws://127.0.0.1:8000/ws/gex/${activeTicker}`);
+      setGexConnected(false);
+      const gexWs = new WebSocket(`ws://${window.location.hostname}:8001/ws/gex/${activeTicker}`);
+      gexWs.onopen = () => setGexConnected(true);
+      gexWs.onclose = () => setGexConnected(false);
+      gexWs.onerror = () => setGexConnected(false);
       gexWs.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -339,21 +432,39 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
           console.error("Error parsing GEX WS message:", e);
         }
       };
-      return () => gexWs.close();
+      return () => {
+        gexWs.close();
+        setGexConnected(false);
+      };
     }
-  }, [activeTicker, isMockMode]);
+  }, [activeTicker, isMockMode, refreshKey]);
 
   // Sync loop for GEX overlays
   useEffect(() => {
     if (!seriesRef.current || !gexData) return;
     let animationFrameId: number;
     
+    const filteredGexData = { ...gexData };
+    if (gexLimit > 0) {
+      const allStrikes = [...gexData.most_positive, ...gexData.most_negative];
+      
+      // Sort by distance to spot price
+      allStrikes.sort((a, b) => Math.abs(a.strike - gexData.spot_price) - Math.abs(b.strike - gexData.spot_price));
+      
+      // Take the top 'gexLimit' closest strikes
+      const closestStrikes = allStrikes.slice(0, gexLimit);
+      
+      filteredGexData.most_positive = closestStrikes.filter(s => s.gex >= 0);
+      filteredGexData.most_negative = closestStrikes.filter(s => s.gex < 0);
+    }
+    
     // Broadcast for the side panel table
-    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: gexData } }));
+    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: filteredGexData } }));
 
     const syncPositions = () => {
-      const positions = [];
-      const strikes = [...gexData.most_positive, ...gexData.most_negative].map(p => p.strike).sort((a,b) => a-b);
+      const positions: any[] = [];
+      const strikes = [...filteredGexData.most_positive, ...filteredGexData.most_negative].map(p => p.strike).sort((a,b) => a-b);
+      
       let minGap = 1;
       if (strikes.length > 1) {
         const gaps = [];
@@ -366,19 +477,19 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
         }
       }
 
-      for (const item of gexData.most_positive) {
+      for (const item of filteredGexData.most_positive) {
         const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
         const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
         if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'positive' });
       }
-      for (const item of gexData.most_negative) {
+      for (const item of filteredGexData.most_negative) {
         const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
         const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
         if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'negative' });
       }
       setGexPositions(positions);
-      if (gexData.zero_gamma) {
-        setZeroGammaY(seriesRef.current.priceToCoordinate(gexData.zero_gamma));
+      if (filteredGexData.zero_gamma) {
+        setZeroGammaY(seriesRef.current.priceToCoordinate(filteredGexData.zero_gamma));
       } else {
         setZeroGammaY(null);
       }
@@ -387,10 +498,10 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     
     syncPositions();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [gexData]);
+  }, [gexData, gexLimit]);
 
   return (
-    <div className="glass-panel chart-section" style={{ flex: 1, position: 'relative', width: '100%', minHeight: 0, minWidth: 0 }}>
+    <div className="glass-panel chart-section" style={{ flex: 1, position: 'relative', width: '100%', height: '100%', minHeight: 0, minWidth: 0 }}>
       <div className="chart-header">
         <div className="chart-title" style={{ flex: 1 }}>
           <form onSubmit={handleTickerSubmit} className="ticker-search-form" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -442,9 +553,15 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
             ))}
           </div>
 
-          <div style={{ fontSize: '12px', color: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444'), marginLeft: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444') }} />
-            {isFallback ? 'YAHOO (FALLBACK)' : (isConnected ? 'LIVE' : 'DISCONNECTED')}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444') }} title={isFallback ? "Yahoo (Fallback)" : "Tradier WS"} />
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>PRICE</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: gexConnected ? '#10b981' : '#ef4444' }} title="Massive GEX" />
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>GEX</span>
+            </div>
           </div>
         </div>
         <div className="price-display">
