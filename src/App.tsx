@@ -14,7 +14,6 @@ function App() {
   const [layoutMode, setLayoutMode] = useState<'single' | 'vertical' | 'horizontal'>('single');
   const [showPremium, setShowPremium] = useState(false);
   const [showAnomalous, setShowAnomalous] = useState(false);
-  const [gexLimit, setGexLimit] = useState<number>(0);
   
   // Keep track of which tickers are active in charts for the tables to consume
   // For simplicity, primary is always SPY/active, secondary is also tracked inside TradingViewWidget
@@ -86,23 +85,6 @@ function App() {
             <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Anomalous</span>
           </button>
         </div>
-
-        <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontWeight: 'bold', color: '#94a3b8' }}>GEX Limit:</span>
-          <select 
-            value={gexLimit} 
-            onChange={(e) => setGexLimit(Number(e.target.value))}
-            style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '4px 8px', outline: 'none' }}
-          >
-            <option value={0}>All Strikes</option>
-            <option value={5}>5 Strikes</option>
-            <option value={10}>10 Strikes</option>
-            <option value={20}>20 Strikes</option>
-            <option value={50}>50 Strikes</option>
-          </select>
-        </div>
       </div>
 
       <div style={{ flex: 1, position: 'relative' }}>
@@ -120,7 +102,7 @@ function App() {
           <div key="chart-primary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <TradingViewWidget chartId="primary" gexLimit={gexLimit} />
+              <TradingViewWidget chartId="primary" />
             </div>
           </div>
 
@@ -128,7 +110,7 @@ function App() {
             <div key="chart-secondary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
               <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <TradingViewWidget chartId="secondary" gexLimit={gexLimit} />
+                <TradingViewWidget chartId="secondary" />
               </div>
             </div>
           )}

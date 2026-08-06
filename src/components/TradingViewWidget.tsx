@@ -27,7 +27,39 @@ interface GexData {
   most_positive: GexItem[];
 }
 
-export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chartId?: string, gexLimit?: number }) => {
+const filterGexData = (data: GexData, limit: number, price: number): GexData => {
+  if (limit <= 0) return { ...data };
+  const centerPrice = price || data.spot_price;
+  const allStrikes = [...data.most_positive, ...data.most_negative];
+  const uniqueStrikes = Array.from(new Set(allStrikes.map(s => s.strike))).sort((a, b) => a - b);
+  
+  const below = uniqueStrikes.filter(s => s < centerPrice).sort((a, b) => b - a);
+  const above = uniqueStrikes.filter(s => s >= centerPrice).sort((a, b) => a - b);
+  
+  let takeUp = Math.ceil(limit / 2);
+  let takeDown = Math.floor(limit / 2);
+  
+  if (above.length < takeUp) {
+    takeDown += (takeUp - above.length);
+    takeUp = above.length;
+  } else if (below.length < takeDown) {
+    takeUp += (takeDown - below.length);
+    takeDown = below.length;
+  }
+  
+  const selectedStrikes = new Set([
+    ...above.slice(0, takeUp),
+    ...below.slice(0, takeDown)
+  ]);
+  
+  return {
+    ...data,
+    most_positive: data.most_positive.filter(s => selectedStrikes.has(s.strike)),
+    most_negative: data.most_negative.filter(s => selectedStrikes.has(s.strike))
+  };
+};
+
+export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -48,6 +80,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   const [isLoading, setIsLoading] = useState(true);
 
   const [gexData, setGexData] = useState<GexData | null>(null);
+  const [gexLimit, setGexLimit] = useState<number>(0);
   const [showGexPanel, setShowGexPanel] = useState(true);
   const [gexPanelWidth, setGexPanelWidth] = useState(300);
   const [gexPanelHeight, setGexPanelHeight] = useState(400);
@@ -441,6 +474,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   }, [activeTicker]);
 
   const [gexStatus, setGexStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [gexLastUpdated, setGexLastUpdated] = useState<Date | null>(null);
 
   // GEX Data Connection / Mock Mode
   useEffect(() => {
@@ -449,9 +483,11 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       setGexConnected(true);
       // Mock Mode Interval
       setGexData(generateMockGex(activeTicker, currentPriceRef.current));
+      setGexLastUpdated(new Date());
       setGexStatus('success');
       const interval = setInterval(() => {
         setGexData(generateMockGex(activeTicker, currentPriceRef.current));
+        setGexLastUpdated(new Date());
       }, 1500); // constantly changing every 1.5s
       return () => {
         setGexConnected(false);
@@ -470,6 +506,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
           const data = JSON.parse(event.data);
           if (data.most_positive && data.most_negative) {
             setGexData(data);
+            setGexLastUpdated(new Date());
             setGexStatus('success');
           }
         } catch (e) {
@@ -489,17 +526,10 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   useEffect(() => {
     let filteredGexData = null;
     if (gexData) {
-      filteredGexData = { ...gexData };
-      if (gexLimit > 0) {
-        const allStrikes = [...gexData.most_positive, ...gexData.most_negative];
-        allStrikes.sort((a, b) => Math.abs(a.strike - gexData.spot_price) - Math.abs(b.strike - gexData.spot_price));
-        const closestStrikes = allStrikes.slice(0, gexLimit);
-        filteredGexData.most_positive = closestStrikes.filter(s => s.gex >= 0);
-        filteredGexData.most_negative = closestStrikes.filter(s => s.gex < 0);
-      }
+      filteredGexData = filterGexData(gexData, gexLimit, currentPriceRef.current);
     }
     window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: filteredGexData, status: gexStatus } }));
-  }, [gexData, gexStatus, chartId, gexLimit]);
+  }, [gexData, gexStatus, chartId, gexLimit, currentPrice]);
 
   // Sync loop for GEX overlays
   useEffect(() => {
@@ -512,22 +542,9 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     let lastPositionsStr = "";
     let lastZeroGammaY: number | null = null;
     
-    const filteredGexData = { ...gexData };
-    if (gexLimit > 0) {
-      const allStrikes = [...gexData.most_positive, ...gexData.most_negative];
-      
-      // Sort by distance to spot price
-      allStrikes.sort((a, b) => Math.abs(a.strike - gexData.spot_price) - Math.abs(b.strike - gexData.spot_price));
-      
-      // Take the top 'gexLimit' closest strikes
-      const closestStrikes = allStrikes.slice(0, gexLimit);
-      
-      filteredGexData.most_positive = closestStrikes.filter(s => s.gex >= 0);
-      filteredGexData.most_negative = closestStrikes.filter(s => s.gex < 0);
-    }
-    
     // Broadcast for the side panel table
     const syncPositions = () => {
+      const filteredGexData = filterGexData(gexData, gexLimit, currentPriceRef.current);
       const positions: any[] = [];
 
       for (const item of filteredGexData.most_positive) {
@@ -592,6 +609,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
             {isMockMode ? 'Simulated GEX levels' : 'Live GEX levels'}
           </button>
           
+
           <button 
             onClick={() => setShowGexPanel(!showGexPanel)}
             style={{ 
@@ -609,6 +627,22 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
             0DTE GEX
           </button>
           
+          {/* GEX Limit Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '12px' }}>
+            <span style={{ fontWeight: 'bold', color: '#94a3b8', fontSize: '11px' }}>Strikes:</span>
+            <select 
+              value={gexLimit} 
+              onChange={(e) => setGexLimit(Number(e.target.value))}
+              style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '2px 4px', outline: 'none', fontSize: '11px', cursor: 'pointer' }}
+            >
+              <option value={0}>All</option>
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+
           {/* Timeframe Selector */}
           <div style={{ display: 'flex', gap: '4px', marginLeft: '12px', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '6px' }}>
             {TIMEFRAMES.map((tf) => (
@@ -639,6 +673,11 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: gexConnected ? '#10b981' : '#ef4444' }} title="Massive GEX" />
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>GEX</span>
+              {gexLastUpdated && (
+                <span style={{ fontSize: '9px', color: '#64748b', marginLeft: '4px' }}>
+                  ({gexLastUpdated.toLocaleTimeString()})
+                </span>
+              )}
             </div>
           </div>
         </div>
