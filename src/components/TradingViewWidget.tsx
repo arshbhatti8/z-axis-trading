@@ -346,12 +346,9 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
         sessionWs.onopen = () => {
           setIsConnected(true);
           const payload = {
-            commands: {
-              command: "subscribe",
-              sessionid: sessionId,
-              symbols: [activeTicker],
-              lineFilter: false
-            }
+            symbols: [activeTicker],
+            sessionid: sessionId,
+            linebreak: true
           };
           sessionWs?.send(JSON.stringify(payload));
           
@@ -408,8 +405,12 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
         };
         
         sessionWs.onclose = () => {
-          console.warn("Tradier WS Closed.");
+          console.warn("Tradier WS Closed. Falling back.");
           setIsConnected(false);
+          setIsFallback(true);
+          if (!fallbackInterval) {
+            fallbackInterval = window.setInterval(() => loadHistoryData(false), 60000);
+          }
         };
       } catch (err) {
         console.error("Tradier WS Connection Error:", err);
