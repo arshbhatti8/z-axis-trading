@@ -197,6 +197,22 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: true,
+        tickMarkFormatter: (time: any) => {
+          if (typeof time === 'number') {
+            const d = new Date(time * 1000);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          }
+          return `${time.year}-${time.month}-${time.day}`;
+        },
+      },
+      localization: {
+        timeFormatter: (time: any) => {
+          if (typeof time === 'number') {
+            const d = new Date(time * 1000);
+            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          }
+          return `${time.year}-${time.month}-${time.day}`;
+        }
       },
       rightPriceScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -328,6 +344,7 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
 
           const lastCandle = json.data[json.data.length - 1];
           setCurrentPrice(lastCandle.close);
+          currentCandleRef.current = { ...lastCandle };
           
           // Only auto-scale the viewport on the first load of the ticker, not on polling updates
           if (isInitialLoad) {
@@ -384,10 +401,8 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
             linebreak: true
           };
           sessionWs?.send(JSON.stringify(payload));
-          
-          // Do NOT clear historical data here, otherwise the chart becomes empty
-          // until new live trades come in.
-          currentCandleRef.current = null;
+          // Preserve historical data for the current candle, do not null it out!
+          // currentCandleRef is now correctly initialized by loadHistoryData
         };
 
         sessionWs.onmessage = (event) => {
@@ -497,26 +512,64 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
       // Live GEX WebSocket
       setGexData(null);
       setGexConnected(false);
-      const gexWs = new WebSocket(`ws://${window.location.hostname}:8001/ws/gex/${activeTicker}`);
-      gexWs.onopen = () => { setGexConnected(true); setGexStatus('success'); };
-      gexWs.onclose = () => { setGexConnected(false); setGexStatus('error'); };
-      gexWs.onerror = () => { setGexConnected(false); setGexStatus('error'); };
-      gexWs.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.most_positive && data.most_negative) {
-            setGexData(data);
-            setGexLastUpdated(new Date());
-            setGexStatus('success');
+      let gexWs: WebSocket | null = null;
+      let retryTimeout: number | null = null;
+      let isCancelled = false;
+
+      const connectGexWs = () => {
+        if (isCancelled) return;
+        gexWs = new WebSocket(`ws://${window.location.hostname}:8001/ws/gex/${activeTicker}`);
+        
+        gexWs.onopen = () => {
+          if (isCancelled) {
+            gexWs?.close();
+            return;
           }
-        } catch (e) {
-          console.error("Error parsing GEX WS message:", e);
-        }
+          setGexConnected(true);
+          setGexStatus('success');
+        };
+        
+        gexWs.onclose = () => {
+          if (isCancelled) return;
+          setGexConnected(false);
+          setGexStatus('error');
+          retryTimeout = window.setTimeout(connectGexWs, 5000);
+        };
+        
+        gexWs.onerror = () => {
+          if (isCancelled) return;
+          setGexConnected(false);
+          setGexStatus('error');
+        };
+        
+        gexWs.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.error) {
+              setGexStatus('error');
+              return;
+            }
+            if (data.most_positive && data.most_negative) {
+              setGexData(data);
+              setGexLastUpdated(new Date());
+              setGexStatus('success');
+            }
+          } catch (e) {
+            console.error("Error parsing GEX WS message:", e);
+          }
+        };
       };
+
+      connectGexWs();
+
       return () => {
-        gexWs.onclose = null;
-        gexWs.onerror = null;
-        gexWs.close();
+        isCancelled = true;
+        if (retryTimeout) clearTimeout(retryTimeout);
+        if (gexWs) {
+          gexWs.onclose = null;
+          gexWs.onerror = null;
+          gexWs.close();
+        }
         setGexConnected(false);
       };
     }

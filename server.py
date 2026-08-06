@@ -214,7 +214,20 @@ def calculate_zero_gamma_level(options_data, current_spot):
 def get_gex_payload(ticker: str):
     today = get_0dte_date()
     data = fetch_options_data(ticker, today)
-    if not data:
+    
+    # Fallback to nearest Friday for non-daily tickers
+    if (not data or not data.get("results")) and ticker.upper() not in ["SPY", "QQQ", "SPX", "IWM"]:
+        today_dt = datetime.datetime.strptime(today, "%Y-%m-%d")
+        days_to_friday = (4 - today_dt.weekday()) % 7
+        if days_to_friday > 0:
+            next_friday = today_dt + datetime.timedelta(days=days_to_friday)
+            next_friday_str = next_friday.strftime('%Y-%m-%d')
+            fallback_data = fetch_options_data(ticker, next_friday_str)
+            if fallback_data and fallback_data.get("results"):
+                today = next_friday_str
+                data = fallback_data
+
+    if not data or not data.get("results"):
         return {"error": "Invalid API key or data not found"}
         
     total_gex, gex_by_strike, spot_price, strike_premium = calculate_gex(data)
@@ -254,18 +267,22 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
     ticker = ticker.upper()
     
     async def poll_and_send():
-        try:
-            while True:
+        while True:
+            try:
                 # Fetch and send data
                 payload = await asyncio.to_thread(get_gex_payload, ticker)
                 await websocket.send_json(payload)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if LOG_LEVEL == "debug":
+                    print(f"Error in GEX poll loop for {ticker}: {e}")
                 
+            try:
                 # Wait 5 seconds before next update
                 await asyncio.sleep(5)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+            except asyncio.CancelledError:
+                break
             
     polling_task = asyncio.create_task(poll_and_send())
     
@@ -288,8 +305,8 @@ async def websocket_anomalous(websocket: WebSocket, ticker: str):
     tradier_key = os.environ.get("VITE_TRADIER_API_KEY")
     
     async def poll_anomalous():
-        try:
-            while True:
+        while True:
+            try:
                 if not tradier_key:
                     # Mock data
                     mock_trade = {
@@ -303,9 +320,8 @@ async def websocket_anomalous(websocket: WebSocket, ticker: str):
                     await asyncio.sleep(5)
                 else:
                     try:
-                        start = (datetime.datetime.now() - datetime.timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
-                        end = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval=tick&start={start}&end={end}"
+                        start = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
+                        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval=tick&start={start}"
                         headers = {"Authorization": f"Bearer {tradier_key}", "Accept": "application/json"}
                         
                         response = await asyncio.to_thread(requests.get, url, headers=headers)
@@ -322,16 +338,22 @@ async def websocket_anomalous(websocket: WebSocket, ticker: str):
                                         "ticker": ticker,
                                         "size": trade.get("volume"),
                                         "price": trade.get("price", 0.0),
-                                        "time": trade.get("time")
+                                        "time": trade.get("timestamp") or trade.get("time")
                                     }
                                     await websocket.send_json(anomalous)
                     except Exception:
                         pass
                     await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
+            
+            # just in case it breaks from the inner sleeps
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
             
     polling_task = asyncio.create_task(poll_anomalous())
     
@@ -355,9 +377,8 @@ def get_tradier_history(ticker: str, interval: str, tradier_token: str):
         if interval == "1m": t_interval = "1min"
         elif interval == "5m": t_interval = "5min"
         
-        start = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
-        end = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval={t_interval}&start={start}&end={end}"
+        start = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        url = f"https://api.tradier.com/v1/markets/timesales?symbol={ticker}&interval={t_interval}&start={start}"
     else:
         t_interval = "daily"
         if interval == "1W": t_interval = "weekly"
@@ -375,16 +396,15 @@ def get_tradier_history(ticker: str, interval: str, tradier_token: str):
         series = data.get("series", {}).get("data", [])
         if isinstance(series, dict): series = [series]
         for d in series:
-            dt = datetime.datetime.strptime(d["time"], "%Y-%m-%dT%H:%M:%S")
             formatted_data.append({
-                "time": int(dt.timestamp()),
+                "time": d["timestamp"],
                 "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d.get("volume", 0)
             })
     else:
         history = data.get("history", {}).get("day", [])
         if isinstance(history, dict): history = [history]
         for d in history:
-            dt = datetime.datetime.strptime(d["date"], "%Y-%m-%d")
+            dt = datetime.datetime.strptime(d["date"], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
             formatted_data.append({
                 "time": int(dt.timestamp()),
                 "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d.get("volume", 0)
