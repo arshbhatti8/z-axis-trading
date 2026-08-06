@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
-import { Search } from 'lucide-react';
+import { Search, Activity } from 'lucide-react';
 import { generateMockGex } from '../mocks/gexMock';
+import { GexTable } from './GexTable';
 
 interface ChartOverlayProps {
   currentPrice: number;
@@ -28,10 +29,10 @@ interface GexData {
 
 export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chartId?: string, gexLimit?: number }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
-  const vwapSeriesRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   
   const [tickerInput, setTickerInput] = useState('SPY');
@@ -47,6 +48,9 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   const [isLoading, setIsLoading] = useState(true);
 
   const [gexData, setGexData] = useState<GexData | null>(null);
+  const [showGexPanel, setShowGexPanel] = useState(true);
+  const [gexPanelWidth, setGexPanelWidth] = useState(300);
+  const [gexPanelHeight, setGexPanelHeight] = useState(400);
   const [gexPositions, setGexPositions] = useState<{strike: number, topY: number, bottomY: number, gex: number, type: string}[]>([]);
   const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
 
@@ -63,6 +67,61 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     if (tickerInput.trim()) {
       setActiveTicker(tickerInput.trim().toUpperCase());
     }
+  };
+
+  const formatGex = (val: number, decimals: number = 1) => {
+    const abs = Math.abs(val);
+    if (abs >= 1e9) return (val / 1e9).toFixed(decimals) + 'B';
+    if (abs >= 1e6) return (val / 1e6).toFixed(decimals) + 'M';
+    return (val / 1e3).toFixed(decimals) + 'K';
+  };
+
+  const dragRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number; isMobile: boolean } | null>(null);
+
+  const onDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    const isTouch = 'touches' in e;
+    const clientX = isTouch ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = isTouch ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    const isMobile = window.innerWidth <= 1024;
+    
+    dragRef.current = { startX: clientX, startY: clientY, startWidth: gexPanelWidth, startHeight: gexPanelHeight, isMobile };
+    
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchmove', onDragMove, { passive: false });
+    document.addEventListener('touchend', onDragEnd);
+    
+    document.body.style.cursor = isMobile ? 'row-resize' : 'col-resize';
+    document.body.style.userSelect = 'none'; // Prevent text selection while dragging
+  };
+
+  const onDragMove = (e: MouseEvent | TouchEvent) => {
+    if (!dragRef.current) return;
+    const isTouch = 'touches' in e;
+    const clientX = isTouch ? e.touches[0].clientX : (e as MouseEvent).clientX;
+    const clientY = isTouch ? e.touches[0].clientY : (e as MouseEvent).clientY;
+    
+    if (dragRef.current.isMobile) {
+      // For mobile (vertical), we drag up to increase height (since panel is on bottom)
+      const deltaY = clientY - dragRef.current.startY;
+      const newHeight = Math.max(150, Math.min(800, dragRef.current.startHeight - deltaY));
+      setGexPanelHeight(newHeight);
+    } else {
+      // For desktop (horizontal), we drag left to increase width (since panel is on right)
+      const deltaX = clientX - dragRef.current.startX;
+      const newWidth = Math.max(200, Math.min(1200, dragRef.current.startWidth - deltaX));
+      setGexPanelWidth(newWidth);
+    }
+  };
+
+  const onDragEnd = () => {
+    dragRef.current = null;
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+    document.removeEventListener('touchmove', onDragMove);
+    document.removeEventListener('touchend', onDragEnd);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
   };
 
   const getTimeframeSeconds = (tf: string) => {
@@ -83,10 +142,10 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     if (!chartContainerRef.current) return;
 
     const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
+      if (wrapperRef.current && chartRef.current) {
         chartRef.current.applyOptions({ 
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
+          width: wrapperRef.current.clientWidth,
+          height: wrapperRef.current.clientHeight,
         });
       }
     };
@@ -100,8 +159,8 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
         vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
         horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
       },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
+      width: (wrapperRef.current ? wrapperRef.current.clientWidth : chartContainerRef.current?.clientWidth) || 100,
+      height: (wrapperRef.current ? wrapperRef.current.clientHeight : chartContainerRef.current?.clientHeight) || 100,
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: true,
@@ -147,12 +206,6 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-    const vwapSeries = chart.addSeries(LineSeries, {
-      color: '#eab308',
-      lineWidth: 2,
-    });
-    vwapSeriesRef.current = vwapSeries;
-
     chart.subscribeCrosshairMove((param: any) => {
       if (
         param.point === undefined ||
@@ -167,24 +220,25 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       }
 
       const barData = param.seriesData.get(candlestickSeries) as any;
+      const volumeData = param.seriesData.get(volumeSeriesRef.current) as any;
       if (barData) {
         setHoveredData({
           currentPrice: barData.close,
           open: barData.open,
           high: barData.high,
           low: barData.low,
-          volume: barData.volume || 0
+          volume: volumeData ? Math.round(volumeData.value) : 0
         });
       }
     });
 
     const resizeObserver = new ResizeObserver(entries => {
-      if (entries.length === 0 || entries[0].target !== chartContainerRef.current) return;
+      if (entries.length === 0 || entries[0].target !== wrapperRef.current) return;
       handleResize();
     });
 
-    if (chartContainerRef.current) {
-      resizeObserver.observe(chartContainerRef.current);
+    if (wrapperRef.current) {
+      resizeObserver.observe(wrapperRef.current);
     }
 
     return () => {
@@ -204,7 +258,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     setIsLoading(true);
     setGexData(null); // Clear GEX data on ticker change
 
-    const loadHistoryData = async () => {
+    const loadHistoryData = async (isInitialLoad = false) => {
       const tradierToken = import.meta.env.VITE_TRADIER_API_KEY;
       try {
         const url = new URL(`http://${window.location.hostname}:8001/api/history/${activeTicker}`);
@@ -226,18 +280,10 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
         if (json.data && json.data.length > 0) {
           seriesRef.current?.setData(json.data);
           
-          const vwapData: any[] = [];
           const volumeData: any[] = [];
-          let cumulativeVolume = 0;
-          let cumulativeVP = 0;
 
           json.data.forEach((d: any) => {
             const vol = d.volume || 0;
-            const typicalPrice = (d.high + d.low + d.close) / 3;
-            cumulativeVolume += vol;
-            cumulativeVP += vol * typicalPrice;
-            const vwap = cumulativeVolume > 0 ? cumulativeVP / cumulativeVolume : d.close;
-            vwapData.push({ time: d.time, value: vwap });
             volumeData.push({ 
               time: d.time, 
               value: vol, 
@@ -246,14 +292,15 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
           });
 
           volumeSeriesRef.current?.setData(volumeData);
-          vwapSeriesRef.current?.setData(vwapData);
 
           const lastCandle = json.data[json.data.length - 1];
           setCurrentPrice(lastCandle.close);
           
-          // Bug 9: Autoscale the viewport to fit the new ticker's price level
-          chartRef.current?.timeScale().fitContent();
-          chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+          // Only auto-scale the viewport on the first load of the ticker, not on polling updates
+          if (isInitialLoad) {
+            chartRef.current?.timeScale().fitContent();
+            chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+          }
         }
       } catch (e) {
         console.error("History data fetch failed:", e);
@@ -266,11 +313,11 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       const tradierToken = import.meta.env.VITE_TRADIER_API_KEY;
       
       // Load historical data first before opening WS
-      await loadHistoryData();
+      await loadHistoryData(true);
       
       if (!tradierToken) {
         console.warn("VITE_TRADIER_API_KEY is not set. Falling back to Yahoo Finance.");
-        fallbackInterval = window.setInterval(loadHistoryData, 60000);
+        fallbackInterval = window.setInterval(() => loadHistoryData(false), 60000);
         return;
       }
 
@@ -308,9 +355,8 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
           };
           sessionWs?.send(JSON.stringify(payload));
           
-          seriesRef.current?.setData([]);
-          volumeSeriesRef.current?.setData([]);
-          vwapSeriesRef.current?.setData([]);
+          // Do NOT clear historical data here, otherwise the chart becomes empty
+          // until new live trades come in.
           currentCandleRef.current = null;
         };
 
@@ -333,26 +379,17 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
                   high: tradePrice,
                   low: tradePrice,
                   close: tradePrice,
-                  volume: tradeSize,
-                  _cumulativeVP: tradePrice * tradeSize,
-                  _cumulativeVolume: tradeSize
+                  volume: tradeSize
                 };
               } else {
                 currentCandleRef.current.high = Math.max(currentCandleRef.current.high, tradePrice);
                 currentCandleRef.current.low = Math.min(currentCandleRef.current.low, tradePrice);
                 currentCandleRef.current.close = tradePrice;
                 currentCandleRef.current.volume += tradeSize;
-                currentCandleRef.current._cumulativeVP += tradePrice * tradeSize;
-                currentCandleRef.current._cumulativeVolume += tradeSize;
               }
 
               seriesRef.current?.update(currentCandleRef.current);
               
-              const vwap = currentCandleRef.current._cumulativeVolume > 0 
-                ? currentCandleRef.current._cumulativeVP / currentCandleRef.current._cumulativeVolume 
-                : tradePrice;
-                
-              vwapSeriesRef.current?.update({ time: bucketTime, value: vwap });
               volumeSeriesRef.current?.update({ 
                 time: bucketTime, 
                 value: currentCandleRef.current.volume,
@@ -402,12 +439,16 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     return () => window.removeEventListener('requestGexRefresh', handler);
   }, [activeTicker]);
 
+  const [gexStatus, setGexStatus] = useState<'loading' | 'success' | 'error'>('loading');
+
   // GEX Data Connection / Mock Mode
   useEffect(() => {
+    setGexStatus('loading');
     if (isMockMode) {
       setGexConnected(true);
       // Mock Mode Interval
       setGexData(generateMockGex(activeTicker, currentPriceRef.current));
+      setGexStatus('success');
       const interval = setInterval(() => {
         setGexData(generateMockGex(activeTicker, currentPriceRef.current));
       }, 1500); // constantly changing every 1.5s
@@ -417,32 +458,58 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       };
     } else {
       // Live GEX WebSocket
+      setGexData(null);
       setGexConnected(false);
       const gexWs = new WebSocket(`ws://${window.location.hostname}:8001/ws/gex/${activeTicker}`);
-      gexWs.onopen = () => setGexConnected(true);
-      gexWs.onclose = () => setGexConnected(false);
-      gexWs.onerror = () => setGexConnected(false);
+      gexWs.onopen = () => { setGexConnected(true); setGexStatus('success'); };
+      gexWs.onclose = () => { setGexConnected(false); setGexStatus('error'); };
+      gexWs.onerror = () => { setGexConnected(false); setGexStatus('error'); };
       gexWs.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           if (data.most_positive && data.most_negative) {
             setGexData(data);
+            setGexStatus('success');
           }
         } catch (e) {
           console.error("Error parsing GEX WS message:", e);
         }
       };
       return () => {
+        gexWs.onclose = null;
+        gexWs.onerror = null;
         gexWs.close();
         setGexConnected(false);
       };
     }
   }, [activeTicker, isMockMode, refreshKey]);
 
+  // Broadcast GEX Data and Status
+  useEffect(() => {
+    let filteredGexData = null;
+    if (gexData) {
+      filteredGexData = { ...gexData };
+      if (gexLimit > 0) {
+        const allStrikes = [...gexData.most_positive, ...gexData.most_negative];
+        allStrikes.sort((a, b) => Math.abs(a.strike - gexData.spot_price) - Math.abs(b.strike - gexData.spot_price));
+        const closestStrikes = allStrikes.slice(0, gexLimit);
+        filteredGexData.most_positive = closestStrikes.filter(s => s.gex >= 0);
+        filteredGexData.most_negative = closestStrikes.filter(s => s.gex < 0);
+      }
+    }
+    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: filteredGexData, status: gexStatus } }));
+  }, [gexData, gexStatus, chartId, gexLimit]);
+
   // Sync loop for GEX overlays
   useEffect(() => {
-    if (!seriesRef.current || !gexData) return;
+    if (!seriesRef.current || !gexData) {
+      setGexPositions([]);
+      setZeroGammaY(null);
+      return;
+    }
     let animationFrameId: number;
+    let lastPositionsStr = "";
+    let lastZeroGammaY: number | null = null;
     
     const filteredGexData = { ...gexData };
     if (gexLimit > 0) {
@@ -459,8 +526,6 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
     }
     
     // Broadcast for the side panel table
-    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: filteredGexData } }));
-
     const syncPositions = () => {
       const positions: any[] = [];
       const strikes = [...filteredGexData.most_positive, ...filteredGexData.most_negative].map(p => p.strike).sort((a,b) => a-b);
@@ -478,21 +543,26 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
       }
 
       for (const item of filteredGexData.most_positive) {
-        const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
-        const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
-        if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'positive' });
+        const y = seriesRef.current.priceToCoordinate(item.strike);
+        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'positive' });
       }
       for (const item of filteredGexData.most_negative) {
-        const topY = seriesRef.current.priceToCoordinate(item.strike + minGap/2);
-        const bottomY = seriesRef.current.priceToCoordinate(item.strike - minGap/2);
-        if (topY !== null && bottomY !== null) positions.push({ strike: item.strike, topY, bottomY, gex: item.gex, type: 'negative' });
+        const y = seriesRef.current.priceToCoordinate(item.strike);
+        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'negative' });
       }
-      setGexPositions(positions);
-      if (filteredGexData.zero_gamma) {
-        setZeroGammaY(seriesRef.current.priceToCoordinate(filteredGexData.zero_gamma));
-      } else {
-        setZeroGammaY(null);
+      
+      const newPositionsStr = JSON.stringify(positions);
+      if (newPositionsStr !== lastPositionsStr) {
+        setGexPositions(positions);
+        lastPositionsStr = newPositionsStr;
       }
+      
+      const zeroY = filteredGexData.zero_gamma ? seriesRef.current.priceToCoordinate(filteredGexData.zero_gamma) : null;
+      if (zeroY !== lastZeroGammaY) {
+        setZeroGammaY(zeroY);
+        lastZeroGammaY = zeroY;
+      }
+      
       animationFrameId = requestAnimationFrame(syncPositions);
     };
     
@@ -501,9 +571,12 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
   }, [gexData, gexLimit]);
 
   return (
-    <div className="glass-panel chart-section" style={{ flex: 1, position: 'relative', width: '100%', height: '100%', minHeight: 0, minWidth: 0 }}>
+    <div className="glass-panel chart-section" style={{ display: 'flex', flexDirection: 'column', flex: 1, position: 'relative', width: '100%', height: '100%', minHeight: 0, minWidth: 0 }}>
       <div className="chart-header">
-        <div className="chart-title" style={{ flex: 1 }}>
+        <div className="chart-title" style={{ flex: 1, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#8b5cf6', marginRight: '12px', textTransform: 'uppercase' }}>
+            {chartId === 'primary' ? 'Primary Chart' : 'Secondary Chart'}
+          </div>
           <form onSubmit={handleTickerSubmit} className="ticker-search-form" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <Search size={16} color="#94a3b8" />
             <input
@@ -528,7 +601,24 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
               marginLeft: '8px'
             }}
           >
-            {isMockMode ? 'MOCK ON' : 'MOCK OFF'}
+            {isMockMode ? 'Simulated GEX levels' : 'Live GEX levels'}
+          </button>
+          
+          <button 
+            onClick={() => setShowGexPanel(!showGexPanel)}
+            style={{ 
+              background: showGexPanel ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255,255,255,0.05)', 
+              color: showGexPanel ? '#8b5cf6' : '#94a3b8',
+              border: `1px solid ${showGexPanel ? '#8b5cf6' : 'rgba(255,255,255,0.1)'}`,
+              padding: '4px 12px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              marginLeft: '8px'
+            }}
+          >
+            0DTE GEX
           </button>
           
           {/* Timeframe Selector */}
@@ -556,7 +646,7 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isFallback ? '#eab308' : (isConnected ? '#10b981' : '#ef4444') }} title={isFallback ? "Yahoo (Fallback)" : "Tradier WS"} />
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>PRICE</span>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>TRADIER</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: gexConnected ? '#10b981' : '#ef4444' }} title="Massive GEX" />
@@ -569,79 +659,107 @@ export const TradingViewWidget = ({ chartId = 'primary', gexLimit = 0 }: { chart
         </div>
       </div>
       
-      {/* GEX Rectangular Overlays */}
-      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4, overflow: 'hidden' }}>
-        {gexPositions.map((pos, i) => {
-          const maxGex = Math.max(
-            ...(gexData?.most_positive.map(p => Math.abs(p.gex)) || []),
-            ...(gexData?.most_negative.map(p => Math.abs(p.gex)) || [])
-          );
-          const containerWidth = chartContainerRef.current?.clientWidth || 800;
-          const maxWidth = containerWidth * 0.70;
-          const width = Math.max(30, (Math.abs(pos.gex) / (maxGex || 1)) * maxWidth);
-          const isPos = pos.type === 'positive';
-          
-          const height = Math.max(1, Math.abs(pos.bottomY - pos.topY));
-          
-          return (
-            <div key={i} style={{
-              position: 'absolute',
-              right: '56px', // Right edge of chart (offset by price scale width)
-              top: Math.min(pos.topY, pos.bottomY),
-              width: `${width}px`,
-              height: `${height}px`,
-              backgroundColor: isPos ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
-              border: `1px solid ${isPos ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'}`,
-              borderRight: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              padding: '0 6px',
-              fontSize: '11px',
-              color: 'rgba(255,255,255,0.8)',
-              borderRadius: '4px 0 0 4px',
-              backdropFilter: 'blur(2px)'
-            }}>
-              <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
-              <span>{(pos.gex / 1e6).toFixed(1)}M</span>
-            </div>
-          );
-        })}
+      {/* Chart and GEX Overlays Container */}
+      <div className="chart-content-row">
+        <div ref={wrapperRef} style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0 }}>
+          {/* GEX Rectangular Overlays */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '26px', pointerEvents: 'none', zIndex: 4, overflow: 'hidden' }}>
+          {gexPositions.map((pos, i) => {
+            const isPos = pos.type === 'positive';
+            const maxGex = Math.max(
+              ...(gexData?.most_positive.map(p => Math.abs(p.gex)) || []),
+              ...(gexData?.most_negative.map(p => Math.abs(p.gex)) || [])
+            );
+            
+            // Responsive maximum width: 40% of chart width, capped at 250px for large screens
+            const containerWidth = chartContainerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800);
+            const maxWidth = Math.min(250, containerWidth * 0.40);
+            
+            // Minimum width of 80px so text is still readable
+            const width = Math.max(80, (Math.abs(pos.gex) / (maxGex || 1)) * maxWidth);
+            const height = 24; // Fixed height
+            
+            return (
+              <div key={i} style={{
+                position: 'absolute',
+                left: '20px', // Detached from right edge
+                top: pos.y - height / 2, // Centered vertically on strike price coordinate
+                width: `${width}px`,
+                height: `${height}px`,
+                backgroundColor: isPos ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                border: `1px solid ${isPos ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'}`,
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 6px',
+                fontSize: '11px',
+                color: 'rgba(255,255,255,0.8)',
+                borderRadius: '4px',
+                backdropFilter: 'blur(2px)'
+              }}>
+                <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
+                <span>{pos.gex >= 0 ? '+' : ''}{formatGex(pos.gex, 1)}</span>
+              </div>
+            );
+          })}
 
-        {/* Zero Gamma Level Line */}
-        {zeroGammaY !== null && gexData?.zero_gamma && (
-          <div style={{
-            position: 'absolute',
-            left: 0,
-            right: '56px',
-            top: zeroGammaY,
-            height: '1px',
-            borderTop: '2px dashed #eab308',
-            opacity: 0.8
-          }}>
+          {/* Zero Gamma Level Line */}
+          {zeroGammaY !== null && gexData?.zero_gamma && (
             <div style={{
               position: 'absolute',
-              left: '10px',
-              top: '-24px',
-              background: 'rgba(234, 179, 8, 0.15)',
-              border: '1px solid #eab308',
-              color: '#eab308',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              backdropFilter: 'blur(4px)',
-              pointerEvents: 'auto'
+              left: 0,
+              right: '56px',
+              top: zeroGammaY,
+              height: '1px',
+              borderTop: '2px dashed #eab308',
+              opacity: 0.8
             }}>
-              Zero Gamma: ${gexData.zero_gamma.toFixed(2)}
+              <div style={{
+                position: 'absolute',
+                left: '10px',
+                top: '-24px',
+                background: 'rgba(234, 179, 8, 0.15)',
+                border: '1px solid #eab308',
+                color: '#eab308',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                backdropFilter: 'blur(4px)',
+                pointerEvents: 'auto'
+              }}>
+                Zero Gamma: ${gexData.zero_gamma.toFixed(2)}
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+
+          <div 
+            ref={chartContainerRef} 
+            style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }} 
+          />
+        </div>
+
+        {showGexPanel && (
+          <>
+            <div 
+              className="gex-resizer"
+              onMouseDown={onDragStart}
+              onTouchStart={onDragStart}
+            />
+            <div className="gex-panel-container" style={{ flex: `0 0 ${gexPanelWidth}px`, width: `${gexPanelWidth}px`, height: typeof window !== 'undefined' && window.innerWidth <= 1024 ? `${gexPanelHeight}px` : 'auto', borderLeft: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <h2 style={{ fontSize: '14px', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Activity size={16} color="#8b5cf6" />
+                  0DTE Gamma Exposure
+                </h2>
+              </div>
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden', padding: '16px' }}>
+                <GexTable activeCharts={[chartId]} />
+              </div>
+            </div>
+          </>
         )}
       </div>
-
-      <div 
-        ref={chartContainerRef} 
-        style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0 }} 
-      />
 
       {hoveredData && (
         <div className="chart-overlay">

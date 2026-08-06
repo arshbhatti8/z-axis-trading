@@ -13,8 +13,8 @@ const ResponsiveGrid = WidthProvider(ResponsiveGridLayout);
 
 function App() {
   const [layoutMode, setLayoutMode] = useState<'single' | 'vertical' | 'horizontal'>('single');
-  const [showPremium, setShowPremium] = useState(true);
-  const [showAnomalous, setShowAnomalous] = useState(true);
+  const [showPremium, setShowPremium] = useState(false);
+  const [showAnomalous, setShowAnomalous] = useState(false);
   const [gexLimit, setGexLimit] = useState<number>(0);
   
   // Keep track of which tickers are active in charts for the tables to consume
@@ -25,16 +25,13 @@ function App() {
   const getInitialLayout = () => {
     let items = [];
     if (layoutMode === 'single') {
-      items.push({ i: 'chart-primary', x: 0, y: 0, w: 9, h: 10 });
-      items.push({ i: 'gex-panel', x: 9, y: 0, w: 3, h: 5 });
+      items.push({ i: 'chart-primary', x: 0, y: 0, w: 12, h: 10 });
     } else if (layoutMode === 'vertical') {
-      items.push({ i: 'chart-primary', x: 0, y: 0, w: 4, h: 10 });
-      items.push({ i: 'chart-secondary', x: 4, y: 0, w: 5, h: 10 });
-      items.push({ i: 'gex-panel', x: 9, y: 0, w: 3, h: 5 });
+      items.push({ i: 'chart-primary', x: 0, y: 0, w: 6, h: 10 });
+      items.push({ i: 'chart-secondary', x: 6, y: 0, w: 6, h: 10 });
     } else {
-      items.push({ i: 'chart-primary', x: 0, y: 0, w: 9, h: 5 });
-      items.push({ i: 'chart-secondary', x: 0, y: 5, w: 9, h: 5 });
-      items.push({ i: 'gex-panel', x: 9, y: 0, w: 3, h: 5 });
+      items.push({ i: 'chart-primary', x: 0, y: 0, w: 12, h: 5 });
+      items.push({ i: 'chart-secondary', x: 0, y: 5, w: 12, h: 5 });
     }
 
     if (showPremium) {
@@ -119,6 +116,7 @@ function App() {
           onLayoutChange={onLayoutChange}
           draggableHandle=".drag-handle"
           margin={[16, 16]}
+          resizeHandles={['s', 'w', 'e', 'n', 'sw', 'nw', 'se', 'ne']}
         >
           <div key="chart-primary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
@@ -135,18 +133,6 @@ function App() {
               </div>
             </div>
           )}
-
-          <div key="gex-panel" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-              <h3 style={{ paddingBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px' }}>
-                0DTE Gamma Exposure
-              </h3>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <GexTable activeCharts={activeCharts} />
-              </div>
-            </div>
-          </div>
 
           {showPremium && (
             <div key="premium-panel" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>

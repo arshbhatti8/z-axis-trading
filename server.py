@@ -255,8 +255,8 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
                 payload = await asyncio.to_thread(get_gex_payload, ticker)
                 await websocket.send_json(payload)
                 
-                # Wait 60 seconds before next update to avoid rate limits
-                await asyncio.sleep(60)
+                # Wait 5 seconds before next update
+                await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
         except Exception:

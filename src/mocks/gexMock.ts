@@ -12,10 +12,10 @@ export const generateMockGex = (ticker: string, currentPrice: number) => {
   // Use current time to create a smooth continuous sine wave effect
   const time = Date.now() / 2500;
 
-  // Generate 5 positive and 5 negative strikes around the current price
-  for (let i = 1; i <= 5; i++) {
-    // Standard 1% move GEX values for SPY are typically in the billions
-    const baseMag = 2_000_000_000 - (i * 200_000_000);
+  // Generate 50 positive and 50 negative strikes around the current price
+  for (let i = 1; i <= 50; i++) {
+    // Drop magnitude as it gets further away
+    const baseMag = Math.max(10_000_000, 2_000_000_000 - (i * 40_000_000));
 
     const posStrike = baseStrike + (i * 2);
     const posWave = Math.sin(time + i) * 0.4 + 1.0;

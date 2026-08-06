@@ -15,13 +15,19 @@ interface GexData {
 }
 
 export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string[] }) => {
-  const [dataMap, setDataMap] = useState<Record<string, GexData>>({});
+  const formatGex = (val: number, decimals: number = 2) => {
+    const abs = Math.abs(val);
+    if (abs >= 1e9) return (val / 1e9).toFixed(decimals) + 'B';
+    if (abs >= 1e6) return (val / 1e6).toFixed(decimals) + 'M';
+    return (val / 1e3).toFixed(decimals) + 'K';
+  };
+  const [dataMap, setDataMap] = useState<Record<string, { data: GexData | null, status: string }>>({});
   const [sortBy, setSortBy] = useState<'strike' | 'gex'>('strike');
 
   useEffect(() => {
     const handleUpdate = (e: any) => {
-      const { chartId, data } = e.detail;
-      setDataMap(prev => ({ ...prev, [chartId]: data }));
+      const { chartId, data, status } = e.detail;
+      setDataMap(prev => ({ ...prev, [chartId]: { data, status } }));
     };
     window.addEventListener('gexDataUpdate', handleUpdate);
     return () => window.removeEventListener('gexDataUpdate', handleUpdate);
@@ -29,7 +35,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', gap: '32px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', padding: '0 8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', padding: '0 8px', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '12px', color: '#94a3b8' }}>Sort by:</span>
           <select 
@@ -44,7 +50,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
         <button
           onClick={() => {
             activeCharts.forEach(id => {
-              const ticker = dataMap[id]?.ticker;
+              const ticker = dataMap[id]?.data?.ticker;
               if (ticker) window.dispatchEvent(new CustomEvent('requestGexRefresh', { detail: { ticker } }));
             });
           }}
@@ -55,13 +61,22 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
         </button>
       </div>
       {activeCharts.map(chartId => {
-        const data = dataMap[chartId];
+        const entry = dataMap[chartId] || { status: 'loading', data: null };
+        const { data, status } = entry;
         
-        if (!data) {
+        if (status === 'loading') {
           return (
             <div key={chartId} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#94a3b8', padding: '40px 20px', gap: '16px' }}>
               <div style={{ width: '24px', height: '24px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               <div style={{ fontSize: '12px' }}>Awaiting GEX data for {chartId}...</div>
+            </div>
+          );
+        }
+
+        if (status === 'error' || !data) {
+          return (
+            <div key={chartId} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#ef4444', padding: '40px 20px', gap: '16px' }}>
+              <div style={{ fontSize: '12px' }}>Failed to load GEX data for {chartId}.</div>
             </div>
           );
         }
@@ -78,7 +93,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
             <div style={{ marginBottom: '16px', padding: '0 8px' }}>
               <div style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Total 0DTE GEX ({data.ticker})</div>
               <div style={{ fontSize: '24px', fontWeight: 'bold', color: data.total_gex >= 0 ? '#10b981' : '#ef4444' }}>
-                {data.total_gex >= 0 ? '+' : ''}{(data.total_gex / 1e6).toFixed(2)}M
+                {data.total_gex >= 0 ? '+' : ''}{formatGex(data.total_gex, 2)}
               </div>
               {data.zero_gamma && (
                 <div style={{ marginTop: '4px', fontSize: '13px', color: '#eab308', fontWeight: 'bold' }}>
@@ -91,7 +106,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}>
                   <th style={{ padding: '8px', fontWeight: 'normal' }}>Strike</th>
-                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'normal' }}>GEX (M)</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'normal' }}>GEX Size</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,7 +119,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
                       color: item.gex >= 0 ? '#10b981' : '#ef4444',
                       fontWeight: '600'
                     }}>
-                      {item.gex >= 0 ? '+' : ''}{(item.gex / 1e6).toFixed(2)}
+                      {item.gex >= 0 ? '+' : ''}{formatGex(item.gex, 2)}
                     </td>
                   </tr>
                 ))}

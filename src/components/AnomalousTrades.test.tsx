@@ -9,7 +9,7 @@ describe('AnomalousTrades Component', () => {
 
   it('renders awaiting state initially', () => {
     render(<AnomalousTrades defaultTicker="SPY" />);
-    expect(screen.getByText(/Awaiting anomalous prints/i)).toBeDefined();
+    expect(screen.getByText(/Connecting to data feed.../i)).toBeDefined();
   });
 
   // Since we cannot easily mock WebSocket in jsdom without setup, we will just test the UI elements
