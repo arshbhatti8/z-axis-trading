@@ -750,13 +750,14 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
               ...(gexData?.most_positive.map(p => Math.abs(p.gex)) || []),
               ...(gexData?.most_negative.map(p => Math.abs(p.gex)) || [])
             );
-            
-            // Responsive maximum width: 40% of chart width, capped at 250px for large screens
+            // Responsive maximum width: 40% of chart width (no hard cap)
             const containerWidth = chartContainerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800);
-            const maxWidth = Math.min(250, containerWidth * 0.40);
+            const maxWidth = containerWidth * 0.40;
+            const minWidth = 80;
             
-            // Minimum width of 80px so text is still readable
-            const width = Math.max(80, (Math.abs(pos.gex) / (maxGex || 1)) * maxWidth);
+            // Map 0 -> minWidth, and maxGex -> maxWidth
+            const percentage = Math.abs(pos.gex) / (maxGex || 1);
+            const width = minWidth + percentage * (maxWidth - minWidth);
             const height = 24; // Fixed height
             
             return (
@@ -774,7 +775,9 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
                 fontSize: '11px',
                 color: 'rgba(255,255,255,0.8)',
                 borderRadius: '4px',
-                backdropFilter: 'blur(2px)'
+                backdropFilter: 'blur(2px)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden'
               }}>
                 <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
                 <span>{pos.gex >= 0 ? '+' : ''}{formatGex(pos.gex, 1)}</span>
