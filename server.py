@@ -112,6 +112,46 @@ def calculate_gex(options_data):
         
     spot_price = results[0].get("underlying_asset", {}).get("price", 0.0)
     
+    # Fallback for index tickers like SPX that don't return spot price in the snapshot
+    if spot_price == 0.0:
+        try:
+            ticker_symbol = results[0].get("details", {}).get("ticker", "")
+            if "SPX" in ticker_symbol:
+                lookup_ticker = "SPX"
+            elif "NDX" in ticker_symbol:
+                lookup_ticker = "NDX"
+            else:
+                lookup_ticker = ticker_symbol.split(":")[1][:3] if ":" in ticker_symbol else "SPY"
+                
+            tradier_key = os.environ.get("VITE_TRADIER_API_KEY")
+            if tradier_key:
+                res = requests.get(
+                    f"https://api.tradier.com/v1/markets/quotes?symbols={lookup_ticker}",
+                    headers={"Authorization": f"Bearer {tradier_key}", "Accept": "application/json"}
+                )
+                if res.status_code == 200:
+                    quote_data = res.json().get("quotes", {}).get("quote", {})
+                    if isinstance(quote_data, dict) and "last" in quote_data:
+                        spot_price = float(quote_data["last"])
+            
+            # If tradier fails or is not configured, we still have yfinance imported as backup
+            if spot_price == 0.0:
+                yf_ticker = "^" + lookup_ticker if lookup_ticker in ["SPX", "NDX"] else lookup_ticker
+                history = yf.Ticker(yf_ticker).history(period="1d")
+                if not history.empty:
+                    spot_price = history["Close"].iloc[-1]
+        except Exception as e:
+            if LOG_LEVEL == "debug":
+                print(f"Failed to fetch fallback spot price: {e}")
+    try:
+        exp_date_str = results[0].get("details", {}).get("expiration_date")
+        exp_date = datetime.datetime.strptime(exp_date_str, "%Y-%m-%d").date()
+        today = datetime.datetime.today().date()
+        days_to_expiry = (exp_date - today).days
+        T = max(days_to_expiry / 365.0, 0.001)
+    except:
+        T = 0.001
+        
     for item in results:
         details = item.get("details", {})
         contract_type = details.get("contract_type", "").lower()
@@ -119,6 +159,11 @@ def calculate_gex(options_data):
         
         greeks = item.get("greeks") or {}
         gamma = greeks.get("gamma") or 0.0
+        iv = greeks.get("implied_volatility") or 0.20
+        
+        if gamma == 0.0 and spot_price > 0:
+            gamma = bs_gamma(spot_price, strike, T, 0.02, iv)
+            
         oi = item.get("open_interest", 0)
         
         # Step 1: Scaling to 1% move -> Spot_Price^2 * 0.01
