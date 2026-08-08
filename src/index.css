@@ -1,17 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
-  --bg-dark: #0f172a;
-  --bg-card: rgba(30, 41, 59, 0.7);
-  --text-primary: #f8fafc;
+  --bg-dark: #07070a;
+  --bg-card: rgba(13, 14, 21, 0.7);
+  --text-primary: #f0f8ff;
   --text-secondary: #94a3b8;
-  --accent-primary: #3b82f6;
-  --accent-secondary: #8b5cf6;
-  --success: #10b981;
-  --danger: #ef4444;
+  --accent-primary: #00f0ff;
+  --accent-secondary: #b026ff;
+  --success: #00ff66;
+  --danger: #ff2a55;
   
-  --border-color: rgba(255, 255, 255, 0.1);
-  --glow: 0 0 20px rgba(59, 130, 246, 0.3);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --glow: 0 0 20px rgba(0, 240, 255, 0.4);
 }
 
 * {
@@ -21,11 +21,12 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   background-color: var(--bg-dark);
   background-image: 
-    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.08), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.08), transparent 25%);
+    radial-gradient(circle at 15% 50%, rgba(0, 240, 255, 0.08), transparent 30%),
+    radial-gradient(circle at 85% 30%, rgba(176, 38, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(7, 7, 10, 1) 0%, rgba(13, 14, 21, 1) 100%);
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.5;
@@ -40,11 +41,11 @@ h1, h2, h3, h4, h5, h6 {
 
 .glass-panel {
   background: var(--bg-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .app-container {
@@ -131,7 +132,7 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Outfit', system-ui, sans-serif;
   font-size: 1.25rem;
   font-weight: 600;
   padding: 8px 40px 8px 16px;
@@ -171,12 +172,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .current-price {
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1.5rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .price-change {
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.875rem;
   font-weight: 500;
   display: flex;
@@ -211,10 +214,12 @@ h1, h2, h3, h4, h5, h6 {
 .overlay-item:last-child {
   margin-bottom: 0;
 }
-.overlay-label { color: var(--text-secondary); }
+.overlay-label { color: var(--text-secondary); font-weight: 500; }
 .overlay-value { 
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 600; 
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .stat-card {
