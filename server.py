@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+import db
 
 load_dotenv()
 
@@ -62,7 +63,7 @@ def get_0dte_date():
         today += datetime.timedelta(days=(7 - today.weekday()))
     return today.strftime('%Y-%m-%d')
 
-def fetch_options_data(ticker: str, expiration_date: str):
+def fetch_options_data(ticker: str, expiration_date: str, snapshot_date: str = None):
     if API_KEY == "YOUR_API_KEY_HERE":
         return None
         
@@ -72,7 +73,9 @@ def fetch_options_data(ticker: str, expiration_date: str):
         "apiKey": API_KEY,
         "limit": 250
     }
-    
+    if snapshot_date:
+        params["date"] = snapshot_date
+        
     all_results = []
     while url:
         response = requests.get(url, params=params)
@@ -256,9 +259,10 @@ def calculate_zero_gamma_level(options_data, current_spot):
             
     return round(zero_gamma, 2) if zero_gamma else None
 
-def get_gex_payload(ticker: str):
+def get_gex_payload(ticker: str, snapshot_date: str = None):
     today = get_0dte_date()
-    data = fetch_options_data(ticker, today)
+    # For backfilling in this environment, always use the current 0DTE (Aug 7) as expiration
+    data = fetch_options_data(ticker, today, snapshot_date)
     
     # Fallback to nearest Friday for non-daily tickers
     if (not data or not data.get("results")) and ticker.upper() not in ["SPY", "QQQ", "SPX", "IWM"]:
@@ -305,6 +309,11 @@ def get_gex(ticker: str):
     payload = get_gex_payload(ticker.upper())
     return payload
 
+@app.get("/api/history/gex/{ticker}")
+def get_historical_gex(ticker: str, date: str = None):
+    """REST endpoint to fetch historical intraday GEX data for playback"""
+    return db.get_historical_gex(ticker.upper(), date)
+
 @app.websocket("/ws/gex/{ticker}")
 async def websocket_gex(websocket: WebSocket, ticker: str):
     """WebSocket endpoint to stream GEX data periodically"""
@@ -316,6 +325,10 @@ async def websocket_gex(websocket: WebSocket, ticker: str):
             try:
                 # Fetch and send data
                 payload = await asyncio.to_thread(get_gex_payload, ticker)
+                
+                # Save to database
+                await asyncio.to_thread(db.save_gex_payload, ticker, payload)
+                
                 await websocket.send_json(payload)
             except asyncio.CancelledError:
                 break

@@ -4,6 +4,7 @@ import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'ligh
 import { Search, Activity } from 'lucide-react';
 import { generateMockGex } from '../mocks/gexMock';
 import { GexTable } from './GexTable';
+import { TimeSlider } from './TimeSlider';
 
 interface ChartOverlayProps {
   currentPrice: number;
@@ -59,7 +60,7 @@ const filterGexData = (data: GexData, limit: number, price: number): GexData => 
   };
 };
 
-export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string }) => {
+export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId?: string, globalDate?: string }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -86,6 +87,54 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
   const [gexPanelHeight, setGexPanelHeight] = useState(400);
   const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string}[]>([]);
   const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
+  const isHistoricalModeRef = useRef(false);
+  
+  const [localDate, setLocalDate] = useState<string>(globalDate || new Date().toISOString().split('T')[0]);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [selectedTimestamp, setSelectedTimestamp] = useState<string | null>(null);
+
+  // Sync with global date when it changes
+  useEffect(() => {
+    if (globalDate) {
+      setLocalDate(globalDate);
+    }
+  }, [globalDate]);
+
+  // Fetch historical data for activeTicker and localDate
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`http://localhost:8001/api/history/gex/${activeTicker}?date=${localDate}`);
+        const data = await res.json();
+        setHistoryData(data);
+        setSelectedTimestamp(null);
+      } catch (err) {
+        console.error("Failed to fetch history:", err);
+      }
+    };
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 60000);
+    return () => clearInterval(interval);
+  }, [localDate, activeTicker]);
+
+  // When selected timestamp changes locally, dispatch event and update self
+  useEffect(() => {
+    if (selectedTimestamp) {
+      const payload = historyData.find((d: any) => d.timestamp === selectedTimestamp);
+      if (payload) {
+        isHistoricalModeRef.current = true;
+        setGexData(payload);
+        window.dispatchEvent(new CustomEvent('historicalGexUpdate', {
+          detail: { chartId, data: payload, status: 'historical' }
+        }));
+      }
+    } else {
+      isHistoricalModeRef.current = false;
+      window.dispatchEvent(new CustomEvent('resumeLiveGex', {
+        detail: { chartId }
+      }));
+    }
+  }, [selectedTimestamp, historyData, chartId]);
 
   // Keep track of the current candle for real-time updates
   const currentCandleRef = useRef<any>(null);
@@ -476,6 +525,8 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
     };
   }, [activeTicker, activeTimeframe]);
 
+  // (Removed previous global event listeners since TradingViewWidget now controls its own history)
+  
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -543,6 +594,9 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
         };
         
         gexWs.onmessage = (event) => {
+          // If we are scrubbing the time slider, ignore live updates
+          if (isHistoricalModeRef.current) return;
+          
           try {
             const data = JSON.parse(event.data);
             if (data.error) {
@@ -635,16 +689,45 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
           <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#8b5cf6', marginRight: '12px', textTransform: 'uppercase' }}>
             {chartId === 'primary' ? 'Primary Chart' : 'Secondary Chart'}
           </div>
-          <form onSubmit={handleTickerSubmit} className="ticker-search-form" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <Search size={16} color="#94a3b8" />
+          <form onSubmit={handleTickerSubmit} className="search-box">
+            <Search size={16} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
             <input
               type="text"
               value={tickerInput}
               onChange={(e) => setTickerInput(e.target.value)}
-              placeholder="Enter ticker..."
-              style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', width: '100px', fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase' }}
+              placeholder="Search ticker..."
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '6px 12px 6px 36px',
+                borderRadius: '6px',
+                color: 'white',
+                fontSize: '14px',
+                width: '140px',
+                outline: 'none',
+              }}
             />
           </form>
+          
+          <input 
+            type="date" 
+            value={localDate}
+            onChange={(e) => setLocalDate(e.target.value)}
+            style={{ 
+              background: 'rgba(255,255,255,0.05)', 
+              color: 'white', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              padding: '6px', 
+              borderRadius: '4px',
+              outline: 'none',
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              fontSize: '12px',
+              marginLeft: '8px'
+            }} 
+            title="Panel Playback Date"
+          />
+
           <button 
             onClick={() => setIsMockMode(!isMockMode)}
             style={{ 
@@ -869,6 +952,19 @@ export const TradingViewWidget = ({ chartId = 'primary' }: { chartId?: string })
         </div>
       )}
 
+      {historyData.length > 1 ? (
+        <TimeSlider 
+          timestamps={historyData.map((d: any) => d.timestamp)} 
+          selectedTimestamp={selectedTimestamp}
+          onChange={setSelectedTimestamp}
+        />
+      ) : (
+        <div style={{ padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '12px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          {historyData.length === 1 
+            ? "⏱️ Time Slider disabled: Only a single End-of-Day snapshot is available for this date."
+            : "⏱️ Time Slider disabled: No historical data saved for this date."}
+        </div>
+      )}
 
       {isLoading && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(15, 23, 42, 0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>

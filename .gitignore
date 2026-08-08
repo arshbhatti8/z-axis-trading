@@ -31,3 +31,8 @@ analyze_options.py
 analyze_spx.py
 analyze_trades.py
 bugs.txt
+
+__pycache__/
+*.db
+*.json
+test_*.py

@@ -15,6 +15,13 @@ function App() {
   const [showPremium, setShowPremium] = useState(false);
   const [showAnomalous, setShowAnomalous] = useState(false);
   
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    // Default to today local time
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split('T')[0];
+  });
+  
   // Keep track of which tickers are active in charts for the tables to consume
   // For simplicity, primary is always SPY/active, secondary is also tracked inside TradingViewWidget
   // We'll just pass the chart IDs down
@@ -85,6 +92,27 @@ function App() {
             <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Anomalous</span>
           </button>
         </div>
+        
+        <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }} />
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+          <span style={{ fontWeight: 'bold', color: '#94a3b8' }}>Playback Date:</span>
+          <input 
+            type="date" 
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            style={{ 
+              background: 'rgba(255,255,255,0.05)', 
+              color: 'white', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              padding: '6px', 
+              borderRadius: '4px',
+              outline: 'none',
+              fontFamily: 'inherit',
+              cursor: 'pointer'
+            }} 
+          />
+        </div>
       </div>
 
       <div style={{ flex: 1, position: 'relative' }}>
@@ -102,7 +130,7 @@ function App() {
           <div key="chart-primary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <TradingViewWidget chartId="primary" />
+              <TradingViewWidget chartId="primary" globalDate={selectedDate} />
             </div>
           </div>
 
@@ -110,7 +138,7 @@ function App() {
             <div key="chart-secondary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
               <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <TradingViewWidget chartId="secondary" />
+                <TradingViewWidget chartId="secondary" globalDate={selectedDate} />
               </div>
             </div>
           )}

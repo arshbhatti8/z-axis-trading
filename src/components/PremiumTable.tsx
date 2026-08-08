@@ -57,8 +57,42 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
         }
       }
     };
-    window.addEventListener('gexDataUpdate', handleUpdate);
-    return () => window.removeEventListener('gexDataUpdate', handleUpdate);
+    
+    const handleHistoricalUpdate = (e: any) => {
+      const { chartId, data } = e.detail;
+      if (data && data.timestamp && underlyingSeriesRef.current[chartId]) {
+        const timeObj = new Date(data.timestamp);
+        // Add timezone offset to match lightweight-charts UTC expectation
+        const tzOffset = timeObj.getTimezoneOffset() * 60;
+        const tsTime = (Math.floor(timeObj.getTime() / 1000) - tzOffset) as Time;
+        (underlyingSeriesRef.current[chartId] as any).setMarkers([
+          {
+            time: tsTime,
+            position: 'aboveBar',
+            color: '#eab308',
+            shape: 'arrowDown',
+            text: 'Selected Time'
+          }
+        ]);
+      }
+    };
+    
+    const handleResumeLive = (e: any) => {
+      const { chartId } = e.detail;
+      if (underlyingSeriesRef.current[chartId]) {
+        (underlyingSeriesRef.current[chartId] as any).setMarkers([]);
+      }
+    };
+
+    window.addEventListener('gexUpdate', handleUpdate);
+    window.addEventListener('historicalGexUpdate', handleHistoricalUpdate);
+    window.addEventListener('resumeLiveGex', handleResumeLive);
+    
+    return () => {
+      window.removeEventListener('gexUpdate', handleUpdate);
+      window.removeEventListener('historicalGexUpdate', handleHistoricalUpdate);
+      window.removeEventListener('resumeLiveGex', handleResumeLive);
+    };
   }, []);
 
   useEffect(() => {
