@@ -60,7 +60,7 @@ const filterGexData = (data: GexData, limit: number, price: number): GexData => 
   };
 };
 
-export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId?: string, globalDate?: string }) => {
+export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode = false }: { chartId?: string, globalDate?: string, isMockMode?: boolean }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -77,7 +77,6 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
   const [isConnected, setIsConnected] = useState(false);
   const [gexConnected, setGexConnected] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
-  const [isMockMode, setIsMockMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const [gexData, setGexData] = useState<GexData | null>(null);
@@ -268,16 +267,16 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
       },
       crosshair: {
         vertLine: {
-          color: '#3b82f6',
+          color: '#00f0ff',
           width: 1,
           style: 1,
-          labelBackgroundColor: '#3b82f6',
+          labelBackgroundColor: '#00f0ff',
         },
         horzLine: {
-          color: '#3b82f6',
+          color: '#00f0ff',
           width: 1,
           style: 1,
-          labelBackgroundColor: '#3b82f6',
+          labelBackgroundColor: '#00f0ff',
         },
       },
     });
@@ -285,16 +284,16 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
     chartRef.current = chart;
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#ef4444',
+      upColor: '#00ff66',
+      downColor: '#ff2a55',
       borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
+      wickUpColor: '#00ff66',
+      wickDownColor: '#ff2a55',
     });
     seriesRef.current = candlestickSeries;
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
-      color: '#3b82f6',
+      color: '#00f0ff',
       priceFormat: { type: 'volume' },
       priceScaleId: '', // set as an overlay
     });
@@ -385,7 +384,7 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
             volumeData.push({ 
               time: d.time, 
               value: vol, 
-              color: d.close >= d.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)' 
+              color: d.close >= d.open ? 'rgba(0, 255, 102, 0.5)' : 'rgba(255, 42, 85, 0.5)' 
             });
           });
 
@@ -545,6 +544,8 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
   // GEX Data Connection / Mock Mode
   useEffect(() => {
     setGexStatus('loading');
+    const today = new Date().toISOString().split('T')[0];
+
     if (isMockMode) {
       setGexConnected(true);
       // Mock Mode Interval
@@ -559,6 +560,38 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
         setGexConnected(false);
         clearInterval(interval);
       };
+    } else if (localDate !== today) {
+      // Historical Date Mode - pull from REST, not WS
+      let isCancelled = false;
+      fetch(`http://localhost:8001/api/gex/${activeTicker}?date=${localDate}`)
+        .then(res => res.json())
+        .then(data => {
+          if (isCancelled) return;
+          if (data && !data.error && data.most_positive) {
+            setGexData(data);
+            setGexLastUpdated(new Date());
+            setGexStatus('success');
+            
+            // Re-fetch historyData so the TimeSlider updates
+            fetch(`http://localhost:8001/api/history/gex/${activeTicker}?date=${localDate}`)
+              .then(r => r.json())
+              .then(hData => {
+                if (isCancelled) return;
+                setHistoryData(hData);
+                if (hData.length > 0) {
+                  setSelectedTimestamp(hData[hData.length - 1].timestamp);
+                  isHistoricalModeRef.current = true;
+                }
+              });
+          } else {
+            setGexStatus('error');
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) setGexStatus('error');
+        });
+        
+      return () => { isCancelled = true; setGexConnected(false); };
     } else {
       // Live GEX WebSocket
       setGexData(null);
@@ -627,7 +660,8 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
         setGexConnected(false);
       };
     }
-  }, [activeTicker, isMockMode, refreshKey]);
+  }, [activeTicker, isMockMode, refreshKey, localDate]);
+
 
   // Broadcast GEX Data and Status
   useEffect(() => {
@@ -727,24 +761,6 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate }: { chartId
             }} 
             title="Panel Playback Date"
           />
-
-          <button 
-            onClick={() => setIsMockMode(!isMockMode)}
-            style={{ 
-              background: isMockMode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)', 
-              color: isMockMode ? '#10b981' : '#94a3b8',
-              border: `1px solid ${isMockMode ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
-              padding: '4px 12px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: 'bold',
-              marginLeft: '8px'
-            }}
-          >
-            {isMockMode ? 'Simulated GEX levels' : 'Live GEX levels'}
-          </button>
-          
 
           <button 
             onClick={() => setShowGexPanel(!showGexPanel)}

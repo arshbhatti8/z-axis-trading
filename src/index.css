@@ -277,6 +277,58 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--glow);
 }
 
+.btn-tactile {
+  background: linear-gradient(145deg, rgba(30, 30, 40, 0.8), rgba(20, 20, 30, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 2px 2px 5px rgba(0,0,0,0.3), inset 1px 1px 2px rgba(255,255,255,0.05);
+  transition: all 0.1s ease;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 500;
+}
+.btn-tactile:active {
+  box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);
+  transform: translateY(1px);
+}
+.btn-tactile.active-blue {
+  color: var(--accent-primary);
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2), inset 1px 1px 2px rgba(255,255,255,0.1);
+}
+.btn-tactile.active-green {
+  color: var(--success);
+  border-color: rgba(0, 255, 102, 0.4);
+  box-shadow: 0 0 10px rgba(0, 255, 102, 0.2), inset 1px 1px 2px rgba(255,255,255,0.1);
+}
+.btn-tactile.active-yellow {
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.4);
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.2), inset 1px 1px 2px rgba(255,255,255,0.1);
+}
+
+.input-tactile {
+  background: linear-gradient(145deg, rgba(20, 20, 30, 0.9), rgba(15, 15, 25, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  outline: none;
+  font-family: 'JetBrains Mono', monospace;
+  box-shadow: inset 2px 2px 5px rgba(0,0,0,0.4);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.input-tactile:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2), inset 2px 2px 5px rgba(0,0,0,0.4);
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

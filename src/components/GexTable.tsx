@@ -54,7 +54,8 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
               if (ticker) window.dispatchEvent(new CustomEvent('requestGexRefresh', { detail: { ticker } }));
             });
           }}
-          style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+          className="btn-tactile active-blue"
+          style={{ fontSize: '12px' }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
           Refresh
@@ -110,19 +111,38 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
                 </tr>
               </thead>
               <tbody>
-                {allStrikes.map((item, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>${item.strike}</td>
-                    <td style={{ 
-                      padding: '10px 8px', 
-                      textAlign: 'right',
-                      color: item.gex >= 0 ? '#10b981' : '#ef4444',
-                      fontWeight: '600'
-                    }}>
-                      {item.gex >= 0 ? '+' : ''}{formatGex(item.gex, 2)}
-                    </td>
-                  </tr>
-                ))}
+                {allStrikes.map((item, i) => {
+                  const maxGex = Math.max(...allStrikes.map(s => Math.abs(s.gex)));
+                  const gexPercent = maxGex > 0 ? (Math.abs(item.gex) / maxGex) * 100 : 0;
+                  const isPositive = item.gex >= 0;
+
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                      <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>${item.strike}</td>
+                      <td style={{ 
+                        padding: '10px 8px', 
+                        textAlign: 'right',
+                        color: isPositive ? '#00ff66' : '#ff2a55',
+                        fontWeight: '600'
+                      }}>
+                        <div style={{
+                          position: 'absolute',
+                          right: 0,
+                          top: '2px',
+                          bottom: '2px',
+                          width: `${gexPercent}%`,
+                          backgroundColor: isPositive ? 'rgba(0, 255, 102, 0.15)' : 'rgba(255, 42, 85, 0.15)',
+                          borderRight: `2px solid ${isPositive ? '#00ff66' : '#ff2a55'}`,
+                          zIndex: 0,
+                          pointerEvents: 'none'
+                        }} />
+                        <span style={{ position: 'relative', zIndex: 1 }}>
+                          {isPositive ? '+' : ''}{formatGex(item.gex, 2)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

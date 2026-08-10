@@ -304,9 +304,13 @@ def get_gex_payload(ticker: str, snapshot_date: str = None):
     }
 
 @app.get("/api/gex/{ticker}")
-def get_gex(ticker: str):
+def get_gex(ticker: str, date: str = None):
     """REST endpoint to fetch GEX data for a ticker"""
-    payload = get_gex_payload(ticker.upper())
+    payload = get_gex_payload(ticker.upper(), date)
+    if date and "error" not in payload:
+        # Save it to the database so it shows up in history!
+        # Use noon UTC for historical backfill
+        db.save_gex_payload(ticker.upper(), payload, f"{date} 12:00:00")
     return payload
 
 @app.get("/api/history/gex/{ticker}")

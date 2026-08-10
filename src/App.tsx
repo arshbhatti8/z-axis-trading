@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { TradingViewWidget } from './components/TradingViewWidget';
 import { PremiumTable } from './components/PremiumTable';
 import { AnomalousTrades } from './components/AnomalousTrades';
-import { Square, Columns, Rows, DollarSign, Activity } from 'lucide-react';
+import { Square, Columns, Rows, DollarSign, Activity, Settings } from 'lucide-react';
 import { Responsive as ResponsiveGridLayout, WidthProvider } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -14,6 +14,8 @@ function App() {
   const [layoutMode, setLayoutMode] = useState<'single' | 'vertical' | 'horizontal'>('single');
   const [showPremium, setShowPremium] = useState(false);
   const [showAnomalous, setShowAnomalous] = useState(false);
+  const [isMockMode, setIsMockMode] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     // Default to today local time
@@ -68,14 +70,14 @@ function App() {
       <div className="glass-panel" style={{ display: 'flex', gap: '16px', padding: '8px 16px', alignItems: 'center', marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontWeight: 'bold', color: '#94a3b8' }}>Layout:</span>
-          <button onClick={() => setLayoutMode('single')} style={{ background: layoutMode === 'single' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: layoutMode === 'single' ? '#3b82f6' : '#94a3b8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Single Chart">
-            <Square size={20} />
+          <button onClick={() => setLayoutMode('single')} className={`btn-tactile ${layoutMode === 'single' ? 'active-blue' : ''}`} title="Single Chart">
+            <Square size={18} />
           </button>
-          <button onClick={() => setLayoutMode('vertical')} style={{ background: layoutMode === 'vertical' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: layoutMode === 'vertical' ? '#3b82f6' : '#94a3b8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Vertical Split">
-            <Columns size={20} />
+          <button onClick={() => setLayoutMode('vertical')} className={`btn-tactile ${layoutMode === 'vertical' ? 'active-blue' : ''}`} title="Vertical Split">
+            <Columns size={18} />
           </button>
-          <button onClick={() => setLayoutMode('horizontal')} style={{ background: layoutMode === 'horizontal' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: layoutMode === 'horizontal' ? '#3b82f6' : '#94a3b8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Horizontal Split">
-            <Rows size={20} />
+          <button onClick={() => setLayoutMode('horizontal')} className={`btn-tactile ${layoutMode === 'horizontal' ? 'active-blue' : ''}`} title="Horizontal Split">
+            <Rows size={18} />
           </button>
         </div>
 
@@ -83,12 +85,12 @@ function App() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontWeight: 'bold', color: '#94a3b8' }}>Panels:</span>
-          <button onClick={() => setShowPremium(!showPremium)} style={{ background: showPremium ? 'rgba(16, 185, 129, 0.2)' : 'transparent', color: showPremium ? '#10b981' : '#94a3b8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }} title="Toggle Premium Panel">
-            <DollarSign size={20} />
+          <button onClick={() => setShowPremium(!showPremium)} className={`btn-tactile ${showPremium ? 'active-green' : ''}`} title="Toggle Premium Panel">
+            <DollarSign size={18} />
             <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Premium</span>
           </button>
-          <button onClick={() => setShowAnomalous(!showAnomalous)} style={{ background: showAnomalous ? 'rgba(234, 179, 8, 0.2)' : 'transparent', color: showAnomalous ? '#eab308' : '#94a3b8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }} title="Toggle Anomalous Trades">
-            <Activity size={20} />
+          <button onClick={() => setShowAnomalous(!showAnomalous)} className={`btn-tactile ${showAnomalous ? 'active-yellow' : ''}`} title="Toggle Anomalous Trades">
+            <Activity size={18} />
             <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Anomalous</span>
           </button>
         </div>
@@ -101,17 +103,55 @@ function App() {
             type="date" 
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            style={{ 
-              background: 'rgba(255,255,255,0.05)', 
-              color: 'white', 
-              border: '1px solid rgba(255,255,255,0.1)', 
-              padding: '6px', 
-              borderRadius: '4px',
-              outline: 'none',
-              fontFamily: 'inherit',
-              cursor: 'pointer'
-            }} 
+            className="input-tactile"
           />
+          
+          <div style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '6px', display: 'flex', alignItems: 'center' }}
+              title="Settings"
+            >
+              <Settings size={20} />
+            </button>
+            
+            {showSettings && (
+              <div style={{ 
+                position: 'absolute', 
+                top: '100%', 
+                right: 0, 
+                marginTop: '8px',
+                background: 'rgba(15, 23, 42, 0.95)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '8px',
+                padding: '12px',
+                zIndex: 100,
+                width: 'max-content',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(8px)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'white', fontSize: '14px', fontWeight: 'bold' }}>Data Source</span>
+                  <button 
+                    onClick={() => setIsMockMode(!isMockMode)}
+                    style={{ 
+                      background: isMockMode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)', 
+                      color: isMockMode ? '#10b981' : '#94a3b8',
+                      border: `1px solid ${isMockMode ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {isMockMode ? 'Simulated GEX' : 'Live GEX'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -130,7 +170,7 @@ function App() {
           <div key="chart-primary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <TradingViewWidget chartId="primary" globalDate={selectedDate} />
+              <TradingViewWidget chartId="primary" globalDate={selectedDate} isMockMode={isMockMode} />
             </div>
           </div>
 
@@ -138,7 +178,7 @@ function App() {
             <div key="chart-secondary" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
               <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <TradingViewWidget chartId="secondary" globalDate={selectedDate} />
+                <TradingViewWidget chartId="secondary" globalDate={selectedDate} isMockMode={isMockMode} />
               </div>
             </div>
           )}
