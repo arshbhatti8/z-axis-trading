@@ -14,17 +14,18 @@ npm run build
 This will output the optimized, minified static files into the `dist/` directory.
 
 ## 2. Backend Execution (Python + FastAPI)
-The backend is a FastAPI application. In development, it may have been run using `python server.py`, but in production, it should be run using a production-grade ASGI server like `uvicorn` with multiple workers.
-Run the following commands in the root of the project:
+The backend is a FastAPI application that maintains critical **in-memory state** (WebSocket registries, active pollers, latest payloads). Because of this, it MUST be run with a **single worker**. Running multiple workers will cause fragmented state and missing broadcasts.
+
+In production, run using an ASGI server like `uvicorn`:
 ```bash
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn server:app --host 0.0.0.0 --port 8001 --workers 4
+# If using a virtual environment:
+# source venv/bin/activate 
+
+uvicorn server:app --host 0.0.0.0 --port 8001
 ```
 
-## 3. Web Server & Reverse Proxy
-To deploy the application fully:
-- Serve the static frontend assets from the `dist/` directory using a web server such as Nginx or Apache.
-- Configure a reverse proxy to route any requests starting with `/api/` and `/ws/` to the backend running on port 8001.
+## 3. Web Server & Proxy (Environment Dependent)
+- **If deploying to a PaaS/Platform (e.g. Render, Replit, Heroku):** The platform's proxy will route to the port assigned (8001). Configure the platform to run the backend as a standard web service, ideally on a persistent VM or instance type that does not scale to zero (due to long-lived WebSockets). Serve the frontend static files as a separate static site or via the backend.
+- **If deploying to a bare-metal VPS:** Serve the static frontend assets from the `dist/` directory using a web server such as Nginx. Configure Nginx to reverse proxy any requests starting with `/api/` and `/ws/` to the backend running on port 8001.
 
-You must not alter the source code to accommodate these deployment steps. Rely strictly on infrastructure, reverse proxies, and the commands provided.
+You must not alter the source code to accommodate these deployment steps (e.g., do not attempt to add Redis for pub/sub). Rely strictly on infrastructure, reverse proxies, and the commands provided.
