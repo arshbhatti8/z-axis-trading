@@ -8,12 +8,12 @@ describe('PremiumTable Component', () => {
   });
 
   it('renders loading state initially', () => {
-    render(<PremiumTable activeCharts={['primary']} />);
+    render(<PremiumTable globalDate="2026-08-11" />);
     expect(screen.getByText(/Awaiting Premium data for primary/i)).toBeDefined();
   });
 
   it('renders correctly when data is provided via event', async () => {
-    render(<PremiumTable activeCharts={['primary']} />);
+    render(<PremiumTable globalDate="2026-08-11" />);
     
     await act(async () => {
       const event = new CustomEvent('gexDataUpdate', {

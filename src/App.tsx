@@ -12,7 +12,7 @@ const ResponsiveGrid = WidthProvider(ResponsiveGridLayout);
 
 function App() {
   const [layoutMode, setLayoutMode] = useState<'single' | 'vertical' | 'horizontal' | 'triple' | 'grid'>('single');
-  const [showPremium, setShowPremium] = useState(false);
+  const [premiumPanels, setPremiumPanels] = useState<string[]>([]);
   const [showAnomalous, setShowAnomalous] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -34,14 +34,7 @@ function App() {
     return d.toISOString().split('T')[0];
   });
   
-  // Keep track of which tickers are active in charts for the tables to consume
-  const getActiveCharts = () => {
-    if (layoutMode === 'single') return ['primary'];
-    if (layoutMode === 'vertical' || layoutMode === 'horizontal') return ['primary', 'secondary'];
-    if (layoutMode === 'triple') return ['primary', 'secondary', 'tertiary'];
-    return ['primary', 'secondary', 'tertiary', 'quaternary'];
-  };
-  const activeCharts = getActiveCharts();
+  // Removed getActiveCharts
 
   const getInitialLayout = () => {
     let items = [];
@@ -64,9 +57,9 @@ function App() {
       items.push({ i: 'chart-quaternary', x: 6, y: 5, w: 6, h: 5 });
     }
 
-    if (showPremium) {
-      items.push({ i: 'premium-panel', x: 9, y: 5, w: 3, h: 5 });
-    }
+    premiumPanels.forEach((id, index) => {
+      items.push({ i: id, x: (index * 4) % 12, y: 10 + Math.floor(index / 3) * 5, w: 4, h: 5 });
+    });
     
     if (showAnomalous) {
       items.push({ i: 'anomalous-panel', x: 0, y: 10, w: 12, h: 4 });
@@ -80,7 +73,7 @@ function App() {
   // Update layout when buttons are clicked
   useEffect(() => {
     setLayouts({ lg: getInitialLayout() });
-  }, [layoutMode, showPremium, showAnomalous]);
+  }, [layoutMode, premiumPanels, showAnomalous]);
 
   const onLayoutChange = (_layout: any, allLayouts: any) => {
     setLayouts(allLayouts);
@@ -114,9 +107,9 @@ function App() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontWeight: 'bold', color: '#94a3b8' }}>Panels:</span>
-          <button onClick={() => setShowPremium(!showPremium)} className={`btn-tactile ${showPremium ? 'active-green' : ''}`} title="Toggle Premium Panel">
+          <button onClick={() => setPremiumPanels(prev => [...prev, `premium-${Date.now()}`])} className={`btn-tactile ${premiumPanels.length > 0 ? 'active-green' : ''}`} title="Add Premium Panel">
             <DollarSign size={18} />
-            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Premium</span>
+            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Premium ({premiumPanels.length})</span>
           </button>
           <button onClick={() => setShowAnomalous(!showAnomalous)} className={`btn-tactile ${showAnomalous ? 'active-yellow' : ''}`} title="Toggle Anomalous Trades">
             <Activity size={18} />
@@ -260,14 +253,23 @@ function App() {
             </div>
           )}
 
-          {showPremium && (
-            <div key="premium-panel" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-              <div className="drag-handle" style={{ cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>:: Drag Handle ::</div>
+          {premiumPanels.map((id) => (
+            <div key={id} className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div className="drag-handle" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'move', padding: '8px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#64748b' }}>
+                <span style={{ visibility: 'hidden' }}>X</span>
+                <span>:: Drag Handle ::</span>
+                <button 
+                  onClick={() => setPremiumPanels(prev => prev.filter(p => p !== id))}
+                  style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  ✕
+                </button>
+              </div>
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-                <PremiumTable activeCharts={activeCharts} />
+                <PremiumTable globalDate={selectedDate} />
               </div>
             </div>
-          )}
+          ))}
 
           {showAnomalous && (
             <div key="anomalous-panel" className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
