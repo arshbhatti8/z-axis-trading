@@ -80,6 +80,7 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
   const [isLoading, setIsLoading] = useState(true);
 
   const [gexData, setGexData] = useState<GexData | null>(null);
+
   const [gexLimit, setGexLimit] = useState<number>(0);
   const [showGexPanel, setShowGexPanel] = useState(true);
   const [gexPanelWidth, setGexPanelWidth] = useState(300);
@@ -119,12 +120,13 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
   // When selected timestamp changes locally, dispatch event and update self
   useEffect(() => {
     if (selectedTimestamp) {
-      const payload = historyData.find((d: any) => d.timestamp === selectedTimestamp);
-      if (payload) {
+      const idx = historyData.findIndex((d: any) => d.timestamp === selectedTimestamp);
+      if (idx !== -1) {
         isHistoricalModeRef.current = true;
-        setGexData(payload);
+        const endData = historyData[idx];
+        setGexData(endData);
         window.dispatchEvent(new CustomEvent('historicalGexUpdate', {
-          detail: { chartId, data: payload, status: 'historical' }
+          detail: { chartId, data: endData, status: 'historical' }
         }));
       }
     } else {
@@ -578,6 +580,7 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
               .then(hData => {
                 if (isCancelled) return;
                 setHistoryData(hData);
+                window.dispatchEvent(new CustomEvent('gexHistoryUpdate', { detail: { chartId, historyData: hData } }));
                 if (hData.length > 0) {
                   setSelectedTimestamp(hData[hData.length - 1].timestamp);
                   isHistoricalModeRef.current = true;
@@ -663,13 +666,26 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
   }, [activeTicker, isMockMode, refreshKey, localDate]);
 
 
+  // Update dispatcher for gex table updates
   // Broadcast GEX Data and Status
   useEffect(() => {
-    let filteredGexData = null;
+    let filteredData = gexData;
+
     if (gexData) {
-      filteredGexData = filterGexData(gexData, gexLimit, currentPriceRef.current);
+      filteredData = filterGexData(gexData, gexLimit, currentPriceRef.current);
     }
-    window.dispatchEvent(new CustomEvent('gexDataUpdate', { detail: { chartId, data: filteredGexData, status: gexStatus } }));
+
+    const dispatchData = () => {
+      if (filteredData) {
+        window.dispatchEvent(new CustomEvent('gexDataUpdate', {
+          detail: { chartId, data: filteredData, status: gexStatus }
+        }));
+      }
+    };
+    
+    dispatchData();
+    window.addEventListener('requestCurrentGexData', dispatchData);
+    return () => window.removeEventListener('requestCurrentGexData', dispatchData);
   }, [gexData, gexStatus, chartId, gexLimit, currentPrice]);
 
   // Sync loop for GEX overlays
@@ -776,7 +792,8 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
               marginLeft: '8px'
             }}
           >
-            0DTE GEX
+            <Activity size={12} />
+            GEX List
           </button>
           
           {/* GEX Limit Selector */}

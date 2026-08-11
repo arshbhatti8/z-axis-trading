@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import datetime
 import asyncio
@@ -26,6 +27,7 @@ API_KEY = os.environ.get("MASSIVE_API_KEY", "YOUR_API_KEY_HERE")
 BASE_URL = "https://api.massive.com/v3" 
 
 app = FastAPI(title="GEX Data API")
+SERVER_START_TIME = time.time()
 
 # Allow CORS for frontend
 app.add_middleware(
@@ -38,24 +40,51 @@ app.add_middleware(
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: Dict[str, List[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, ticker: str):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        if ticker not in self.active_connections:
+            self.active_connections[ticker] = []
+        self.active_connections[ticker].append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+    def disconnect(self, websocket: WebSocket, ticker: str):
+        if ticker in self.active_connections and websocket in self.active_connections[ticker]:
+            self.active_connections[ticker].remove(websocket)
 
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception:
-                pass
+    async def broadcast(self, message: dict, ticker: str):
+        if ticker in self.active_connections:
+            for connection in self.active_connections[ticker]:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
 
 manager = ConnectionManager()
+latest_gex_payloads = {}
+active_tickers = {"SPY", "QQQ", "SPX"}
+
+async def background_gex_polling():
+    while True:
+        # Create a list copy to safely iterate while it might be modified
+        tickers_to_track = list(active_tickers)
+        for ticker in tickers_to_track:
+            try:
+                payload = await asyncio.to_thread(get_gex_payload, ticker)
+                if payload and "error" not in payload:
+                    latest_gex_payloads[ticker] = payload
+                    await asyncio.to_thread(db.save_gex_payload, ticker, payload)
+                    await manager.broadcast(payload, ticker)
+            except Exception as e:
+                if LOG_LEVEL == "debug":
+                    print(f"Error in background GEX poll for {ticker}: {e}")
+        
+        # Wait 5 seconds before next polling cycle
+        await asyncio.sleep(5)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(background_gex_polling())
 
 def get_0dte_date():
     today = datetime.datetime.today()
@@ -313,6 +342,25 @@ def get_gex(ticker: str, date: str = None):
         db.save_gex_payload(ticker.upper(), payload, f"{date} 12:00:00")
     return payload
 
+@app.get("/api/health")
+def get_health():
+    total_connections = sum(len(conns) for conns in manager.active_connections.values())
+    uptime_seconds = time.time() - SERVER_START_TIME
+    
+    # Calculate connection breakdown
+    conn_breakdown = {}
+    for ticker, conns in manager.active_connections.items():
+        if conns:
+            conn_breakdown[ticker] = len(conns)
+            
+    return {
+        "status": "online",
+        "uptime_seconds": uptime_seconds,
+        "active_tickers_polling": list(active_tickers),
+        "total_websocket_connections": total_connections,
+        "connections_by_ticker": conn_breakdown
+    }
+
 @app.get("/api/history/gex/{ticker}")
 def get_historical_gex(ticker: str, date: str = None):
     """REST endpoint to fetch historical intraday GEX data for playback"""
@@ -321,43 +369,20 @@ def get_historical_gex(ticker: str, date: str = None):
 @app.websocket("/ws/gex/{ticker}")
 async def websocket_gex(websocket: WebSocket, ticker: str):
     """WebSocket endpoint to stream GEX data periodically"""
-    await manager.connect(websocket)
     ticker = ticker.upper()
+    active_tickers.add(ticker)
+    await manager.connect(websocket, ticker)
     
-    async def poll_and_send():
-        while True:
-            try:
-                # Fetch and send data
-                payload = await asyncio.to_thread(get_gex_payload, ticker)
-                
-                # Save to database
-                await asyncio.to_thread(db.save_gex_payload, ticker, payload)
-                
-                await websocket.send_json(payload)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                if LOG_LEVEL == "debug":
-                    print(f"Error in GEX poll loop for {ticker}: {e}")
-                
-            try:
-                # Wait 5 seconds before next update
-                await asyncio.sleep(5)
-            except asyncio.CancelledError:
-                break
-            
-    polling_task = asyncio.create_task(poll_and_send())
+    if ticker in latest_gex_payloads:
+        await websocket.send_json(latest_gex_payloads[ticker])
     
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
+        manager.disconnect(websocket, ticker)
     except Exception:
-        pass
-    finally:
-        polling_task.cancel()
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, ticker)
 
 @app.websocket("/ws/anomalous/{ticker}")
 async def websocket_anomalous(websocket: WebSocket, ticker: str):
@@ -447,15 +472,21 @@ def get_tradier_history(ticker: str, interval: str, tradier_token: str):
         elif interval == "1M": t_interval = "monthly"
         url = f"https://api.tradier.com/v1/markets/history?symbol={ticker}&interval={t_interval}"
         
-    res = requests.get(url, headers=headers)
-    res.raise_for_status()
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        res.raise_for_status()
+    except Exception as e:
+        print(f"Tradier API request failed: {e}")
+        raise ValueError(f"Tradier API request failed: {e}")
+        
     data = res.json()
     if LOG_LEVEL == "debug":
         print(f"Tradier API Response: {data}")
     
     formatted_data = []
     if is_intraday:
-        series = data.get("series", {}).get("data", [])
+        series_obj = data.get("series") or {}
+        series = series_obj.get("data", [])
         if isinstance(series, dict): series = [series]
         for d in series:
             formatted_data.append({
@@ -463,7 +494,8 @@ def get_tradier_history(ticker: str, interval: str, tradier_token: str):
                 "open": d["open"], "high": d["high"], "low": d["low"], "close": d["close"], "volume": d.get("volume", 0)
             })
     else:
-        history = data.get("history", {}).get("day", [])
+        history_obj = data.get("history") or {}
+        history = history_obj.get("day", [])
         if isinstance(history, dict): history = [history]
         for d in history:
             dt = datetime.datetime.strptime(d["date"], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)

@@ -46,6 +46,16 @@ export const generateMockGex = (ticker: string, currentPrice: number) => {
   // Simulate a Zero Gamma level dynamically fluctuating just below the spot price
   const zero_gamma = price - 5 + (Math.sin(time) * 2);
 
+  // Generate fake premium data
+  const premium_data = [];
+  for (let i = 1; i <= 50; i++) {
+    const strikeOffset = i * 2;
+    const callPrem = 1000000 + (Math.sin(time + i) * 500000);
+    const putPrem = 800000 + (Math.cos(time + i) * 400000);
+    premium_data.push({ strike: baseStrike + strikeOffset, call_premium: callPrem, put_premium: putPrem });
+    premium_data.push({ strike: baseStrike - strikeOffset, call_premium: callPrem, put_premium: putPrem });
+  }
+
   return {
     ticker,
     spot_price: price,
@@ -53,5 +63,6 @@ export const generateMockGex = (ticker: string, currentPrice: number) => {
     zero_gamma,
     most_positive: most_positive.sort((a, b) => b.gex - a.gex),
     most_negative: most_negative.sort((a, b) => a.gex - b.gex),
+    premium_data,
   };
 };

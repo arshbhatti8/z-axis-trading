@@ -5,7 +5,6 @@ import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: string[] }) => {
   const chartContainersRef = useRef<Record<string, HTMLDivElement | null>>({});
   const chartsRef = useRef<Record<string, IChartApi>>({});
-  const underlyingSeriesRef = useRef<Record<string, ISeriesApi<"Line">>>({});
   const callsSeriesRef = useRef<Record<string, ISeriesApi<"Line">>>({});
   const putsSeriesRef = useRef<Record<string, ISeriesApi<"Line">>>({});
   const volumeSeriesRef = useRef<Record<string, ISeriesApi<"Area">>>({});
@@ -28,68 +27,129 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
         const totalPut = data.premium_data.reduce((sum: number, item: any) => sum + item.put_premium, 0) / 1_000_000;
         const spot = data.spot_price || 0; 
         
-        const now = Math.floor(Date.now() / 1000);
+        let dataTime = Math.floor(Date.now() / 1000);
+        if (data.timestamp) {
+          const timeObj = new Date(data.timestamp);
+          const tzOffset = timeObj.getTimezoneOffset() * 60;
+          dataTime = Math.floor(timeObj.getTime() / 1000) - tzOffset;
+        }
         
+        // Ensure strictly increasing time for live updates
         if (!dataSeriesRef.current[chartId]) {
           dataSeriesRef.current[chartId] = [];
         }
         
         const series = dataSeriesRef.current[chartId];
-        // Ensure strictly increasing time
-        if (series.length === 0 || series[series.length - 1].time < now) {
-          const fakeVol = -Math.abs(10000 + (Math.random() * 5000)); // We don't have volume from backend, use a placeholder or 0
-          
-          series.push({ time: now, call: totalCall, put: totalPut, under: spot, vol: fakeVol });
+        
+        setLegendData({
+          calls: totalCall,
+          puts: totalPut,
+          underlying: spot,
+          ticker: data.ticker || 'SPY'
+        });
+        
+        // Ensure strictly increasing time for live updates
+        if (series.length === 0 || series[series.length - 1].time < dataTime) {
+          const fakeVol = -Math.abs(10000 + (Math.random() * 5000));
+          series.push({ time: dataTime, call: totalCall, put: totalPut, under: spot, vol: fakeVol });
           
           if (callsSeriesRef.current[chartId]) {
-            callsSeriesRef.current[chartId].update({ time: now as Time, value: totalCall });
-            putsSeriesRef.current[chartId].update({ time: now as Time, value: totalPut });
-            underlyingSeriesRef.current[chartId].update({ time: now as Time, value: spot });
-            volumeSeriesRef.current[chartId].update({ time: now as Time, value: fakeVol });
-            
-            setLegendData({
-              calls: totalCall,
-              puts: totalPut,
-              underlying: spot,
-              ticker: data.ticker || 'SPY'
-            });
+            callsSeriesRef.current[chartId].update({ time: dataTime as Time, value: totalCall });
+            putsSeriesRef.current[chartId].update({ time: dataTime as Time, value: totalPut });
+            volumeSeriesRef.current[chartId].update({ time: dataTime as Time, value: fakeVol });
           }
+        }
+      }
+    };
+    
+    const handleHistoryUpdate = (e: any) => {
+      const { chartId, historyData } = e.detail;
+      if (historyData && Array.isArray(historyData) && historyData.length > 0) {
+        const seriesData = historyData.map((d: any) => {
+          const totalCall = d.premium_data ? d.premium_data.reduce((sum: number, item: any) => sum + item.call_premium, 0) / 1_000_000 : 0;
+          const totalPut = d.premium_data ? d.premium_data.reduce((sum: number, item: any) => sum + item.put_premium, 0) / 1_000_000 : 0;
+          const spot = d.spot_price || 0;
+          
+          let dataTime = Math.floor(Date.now() / 1000);
+          if (d.timestamp) {
+            const timeObj = new Date(d.timestamp);
+            const tzOffset = timeObj.getTimezoneOffset() * 60;
+            dataTime = Math.floor(timeObj.getTime() / 1000) - tzOffset;
+          }
+          
+          return { time: dataTime, call: totalCall, put: totalPut, under: spot, vol: -Math.abs(10000 + (Math.random() * 5000)) };
+        });
+        
+        seriesData.sort((a, b) => a.time - b.time);
+        dataSeriesRef.current[chartId] = seriesData;
+        
+        if (callsSeriesRef.current[chartId]) {
+          callsSeriesRef.current[chartId].setData(seriesData.map(d => ({ time: d.time as Time, value: d.call })));
+          putsSeriesRef.current[chartId].setData(seriesData.map(d => ({ time: d.time as Time, value: d.put })));
+          volumeSeriesRef.current[chartId].setData(seriesData.map(d => ({ time: d.time as Time, value: d.vol })));
+          
+          const last = seriesData[seriesData.length - 1];
+          setLegendData({
+            calls: last.call,
+            puts: last.put,
+            underlying: last.under,
+            ticker: historyData[0].ticker || 'SPY'
+          });
         }
       }
     };
     
     const handleHistoricalUpdate = (e: any) => {
       const { chartId, data } = e.detail;
-      if (data && data.timestamp && underlyingSeriesRef.current[chartId]) {
+      if (data && data.timestamp && callsSeriesRef.current[chartId]) {
         const timeObj = new Date(data.timestamp);
         // Add timezone offset to match lightweight-charts UTC expectation
         const tzOffset = timeObj.getTimezoneOffset() * 60;
         const tsTime = (Math.floor(timeObj.getTime() / 1000) - tzOffset) as Time;
-        (underlyingSeriesRef.current[chartId] as any).setMarkers([
-          {
-            time: tsTime,
-            position: 'aboveBar',
-            color: '#eab308',
-            shape: 'arrowDown',
-            text: 'Selected Time'
-          }
-        ]);
+        
+        (callsSeriesRef.current[chartId] as any).setMarkers([{
+          time: tsTime,
+          position: 'aboveBar',
+          color: '#eab308',
+          shape: 'arrowDown',
+          text: 'Selected Time'
+        }]);
+        
+        if (data.premium_data) {
+          const totalCall = data.premium_data.reduce((sum: number, item: any) => sum + item.call_premium, 0) / 1_000_000;
+          const totalPut = data.premium_data.reduce((sum: number, item: any) => sum + item.put_premium, 0) / 1_000_000;
+          const spot = data.spot_price || 0;
+          
+          setLegendData({
+            calls: totalCall,
+            puts: totalPut,
+            underlying: spot,
+            ticker: data.ticker || 'SPY'
+          });
+        }
       }
     };
     
     const handleResumeLive = (e: any) => {
       const { chartId } = e.detail;
-      if (underlyingSeriesRef.current[chartId]) {
-        (underlyingSeriesRef.current[chartId] as any).setMarkers([]);
+      if (callsSeriesRef.current[chartId]) {
+        (callsSeriesRef.current[chartId] as any).setMarkers([]);
       }
     };
 
-    window.addEventListener('gexUpdate', handleUpdate);
+    window.addEventListener('gexDataUpdate', handleUpdate);
+    window.addEventListener('gexHistoryUpdate', handleHistoryUpdate);
     window.addEventListener('historicalGexUpdate', handleHistoricalUpdate);
     window.addEventListener('resumeLiveGex', handleResumeLive);
     
+    // Request current data immediately upon mounting
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('requestCurrentGexData'));
+    }, 100);
+    
     return () => {
-      window.removeEventListener('gexUpdate', handleUpdate);
+      window.removeEventListener('gexDataUpdate', handleUpdate);
+      window.removeEventListener('gexHistoryUpdate', handleHistoryUpdate);
       window.removeEventListener('historicalGexUpdate', handleHistoricalUpdate);
       window.removeEventListener('resumeLiveGex', handleResumeLive);
     };
@@ -130,13 +190,6 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
           },
         });
 
-        const underlyingSeries = chart.addSeries(LineSeries, {
-          color: '#2563eb', 
-          lineWidth: 2,
-          priceScaleId: 'right',
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-        });
-
         const callsSeries = chart.addSeries(LineSeries, {
           color: '#10b981', 
           lineWidth: 2,
@@ -165,7 +218,28 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
           visible: false, 
         });
 
-        underlyingSeriesRef.current[chartId] = underlyingSeries;
+        // Add crosshair sync
+        chart.subscribeCrosshairMove((param) => {
+          if (param.time) {
+            const callsData = param.seriesData.get(callsSeries as any) as any;
+            const putsData = param.seriesData.get(putsSeries as any) as any;
+            if (callsData && putsData) {
+              setLegendData(prev => ({
+                ...prev,
+                calls: callsData.value,
+                puts: putsData.value,
+              }));
+            }
+          } else {
+             // Reset to last point
+             const series = dataSeriesRef.current[chartId];
+             if (series && series.length > 0) {
+               const last = series[series.length - 1];
+               setLegendData(prev => ({ ...prev, calls: last.call, puts: last.put, underlying: last.under }));
+             }
+          }
+        });
+
         callsSeriesRef.current[chartId] = callsSeries;
         putsSeriesRef.current[chartId] = putsSeries;
         volumeSeriesRef.current[chartId] = volumeSeries;
@@ -176,7 +250,6 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
         if (existingData.length > 0) {
           callsSeries.setData(existingData.map(d => ({ time: d.time as Time, value: d.call })));
           putsSeries.setData(existingData.map(d => ({ time: d.time as Time, value: d.put })));
-          underlyingSeries.setData(existingData.map(d => ({ time: d.time as Time, value: d.under })));
           volumeSeries.setData(existingData.map(d => ({ time: d.time as Time, value: d.vol })));
         }
 
@@ -215,17 +288,12 @@ export const PremiumTable = ({ activeCharts = ['primary'] }: { activeCharts?: st
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
                 <span>Puts ({legendData.puts < 0 ? '-' : ''}${Math.abs(legendData.puts).toFixed(2)} M)</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2563eb' }} />
-                <span>Underlying (${legendData.underlying.toFixed(2)})</span>
-              </div>
             </div>
           </div>
 
           {/* Y-Axis Labels Overlay */}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 40px', fontSize: '10px', color: '#94a3b8', transform: 'translateY(10px)', zIndex: 10 }}>
              <div style={{ transform: 'rotate(-90deg)', transformOrigin: 'left center', position: 'absolute', left: 25, top: '40%' }}>Premium ($)</div>
-             <div style={{ transform: 'rotate(90deg)', transformOrigin: 'right center', position: 'absolute', right: 25, top: '40%' }}>Underlying ($)</div>
              <div style={{ transform: 'rotate(-90deg)', transformOrigin: 'left center', position: 'absolute', left: 25, bottom: '15%' }}>Volume</div>
           </div>
 

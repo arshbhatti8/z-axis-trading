@@ -129,18 +129,51 @@ def get_historical_gex(ticker: str, date_str: str = None):
         ORDER BY timestamp ASC
     ''', (ticker, date_str))
     
-    history_records = cursor.fetchall()
+    all_history_records = cursor.fetchall()
     
+    # Filter to roughly 1 snapshot per minute (every 12th record if polling every 5s) to prevent massive payloads
+    history_records = []
+    last_dt = None
+    for rec in all_history_records:
+        timestamp_iso = rec["timestamp"]
+        dt = datetime.datetime.strptime(timestamp_iso, "%Y-%m-%d %H:%M:%S")
+        if not last_dt or (dt - last_dt).total_seconds() >= 60:
+            history_records.append(rec)
+            last_dt = dt
+            
     results = []
+    
+    if not history_records:
+        conn.close()
+        return results
+
+    # Get all IDs
+    rec_ids = [rec["id"] for rec in history_records]
+    
+    # Fetch all strikes in chunks to avoid SQLite max variables limit (usually 999)
+    all_strikes = []
+    chunk_size = 900
+    for i in range(0, len(rec_ids), chunk_size):
+        chunk = rec_ids[i:i + chunk_size]
+        placeholders = ",".join(["?"] * len(chunk))
+        cursor.execute(f'''
+            SELECT gex_history_id, strike, gex, call_premium, put_premium 
+            FROM strike_history 
+            WHERE gex_history_id IN ({placeholders})
+        ''', chunk)
+        all_strikes.extend(cursor.fetchall())
+    
+    # Group strikes by gex_history_id
+    strikes_by_id = {}
+    for s in all_strikes:
+        hid = s["gex_history_id"]
+        if hid not in strikes_by_id:
+            strikes_by_id[hid] = []
+        strikes_by_id[hid].append(s)
+        
     for rec in history_records:
         rec_id = rec["id"]
-        
-        cursor.execute('''
-            SELECT strike, gex, call_premium, put_premium 
-            FROM strike_history 
-            WHERE gex_history_id = ?
-        ''', (rec_id,))
-        strikes = cursor.fetchall()
+        strikes = strikes_by_id.get(rec_id, [])
         
         most_positive = [{"strike": s["strike"], "gex": s["gex"]} for s in strikes if s["gex"] >= 0]
         most_negative = [{"strike": s["strike"], "gex": s["gex"]} for s in strikes if s["gex"] < 0]

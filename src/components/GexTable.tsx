@@ -63,7 +63,7 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
       </div>
       {activeCharts.map(chartId => {
         const entry = dataMap[chartId] || { status: 'loading', data: null };
-        const { data, status } = entry;
+        const { data, status } = entry as any;
         
         if (status === 'loading') {
           return (
@@ -82,17 +82,20 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
           );
         }
 
-        const allStrikes = [...data.most_positive, ...data.most_negative];
+        let allStrikes = [...data.most_positive, ...data.most_negative];
+        
         if (sortBy === 'strike') {
           allStrikes.sort((a, b) => b.strike - a.strike);
         } else {
-          allStrikes.sort((a, b) => Math.abs(b.gex) - Math.abs(a.gex));
+          allStrikes.sort((a, b) => b.gex - a.gex);
         }
 
         return (
           <div key={chartId} style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ marginBottom: '16px', padding: '0 8px' }}>
-              <div style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Total 0DTE GEX ({data.ticker})</div>
+              <div style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>
+                GEX List ({data.ticker})
+              </div>
               <div style={{ fontSize: '24px', fontWeight: 'bold', color: data.total_gex >= 0 ? '#10b981' : '#ef4444' }}>
                 {data.total_gex >= 0 ? '+' : ''}{formatGex(data.total_gex, 2)}
               </div>
