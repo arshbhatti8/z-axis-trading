@@ -283,8 +283,12 @@ export const PremiumTable = ({ globalDate }: { globalDate: string }) => {
     };
     
     const handleResumeLive = (_e: any) => {
-      if (callsSeriesRef.current) {
-        (callsSeriesRef.current as any).setMarkers([]);
+      if (callsSeriesRef.current && typeof (callsSeriesRef.current as any).setMarkers === 'function') {
+        try {
+          (callsSeriesRef.current as any).setMarkers([]);
+        } catch (e) {
+          // ignore
+        }
       }
     };
 

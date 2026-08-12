@@ -17,6 +17,7 @@ interface ChartOverlayProps {
 interface GexItem {
   strike: number;
   gex: number;
+  open_gex_pct?: number;
 }
 
 interface GexData {
@@ -85,7 +86,7 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
   const [showGexPanel, setShowGexPanel] = useState(true);
   const [gexPanelWidth, setGexPanelWidth] = useState(300);
   const [gexPanelHeight, setGexPanelHeight] = useState(400);
-  const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string}[]>([]);
+  const [gexPositions, setGexPositions] = useState<{strike: number, y: number, gex: number, type: string, open_gex_pct?: number}[]>([]);
   const [zeroGammaY, setZeroGammaY] = useState<number | null>(null);
   const isHistoricalModeRef = useRef(false);
   
@@ -706,11 +707,11 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
 
       for (const item of filteredGexData.most_positive) {
         const y = seriesRef.current.priceToCoordinate(item.strike);
-        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'positive' });
+        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'positive', open_gex_pct: item.open_gex_pct });
       }
       for (const item of filteredGexData.most_negative) {
         const y = seriesRef.current.priceToCoordinate(item.strike);
-        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'negative' });
+        if (y !== null) positions.push({ strike: item.strike, y, gex: item.gex, type: 'negative', open_gex_pct: item.open_gex_pct });
       }
       
       const newPositionsStr = JSON.stringify(positions);
@@ -893,10 +894,20 @@ export const TradingViewWidget = ({ chartId = 'primary', globalDate, isMockMode 
                 borderRadius: '4px',
                 backdropFilter: 'blur(2px)',
                 whiteSpace: 'nowrap',
-                overflow: 'hidden'
+                overflow: 'visible'
               }}>
                 <span style={{ fontWeight: 'bold', marginRight: '4px' }}>${pos.strike}</span>
                 <span>{pos.gex >= 0 ? '+' : ''}{formatGex(pos.gex, 1)}</span>
+                {pos.open_gex_pct !== undefined && pos.open_gex_pct !== 0 && (
+                  <span style={{
+                    marginLeft: '6px',
+                    fontSize: '10px',
+                    color: pos.open_gex_pct > 0 ? '#00ff66' : '#ff2a55',
+                    fontWeight: 'bold'
+                  }}>
+                    {pos.open_gex_pct > 0 ? '+' : ''}{pos.open_gex_pct}%
+                  </span>
+                )}
               </div>
             );
           })}

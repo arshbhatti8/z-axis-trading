@@ -2,6 +2,18 @@ import sqlite3
 import json
 import os
 import datetime
+try:
+    import pytz
+except ImportError:
+    pytz = None
+
+def get_market_open_utc(date_str):
+    if pytz:
+        tz = pytz.timezone('US/Eastern')
+        dt = datetime.datetime.strptime(date_str + " 09:30:00", "%Y-%m-%d %H:%M:%S")
+        loc_dt = tz.localize(dt)
+        return loc_dt.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return date_str + " 13:30:00" # Fallback to EDT
 
 def get_db_path(date_str: str = None):
     if not date_str:
@@ -109,6 +121,33 @@ def save_gex_payload(ticker: str, payload: dict, timestamp_str: str = None):
     conn.close()
     return gex_history_id
 
+def get_open_gex_for_date(ticker: str, date_str: str):
+    conn = get_connection(date_str)
+    cursor = conn.cursor()
+    market_open = get_market_open_utc(date_str)
+    cursor.execute('''
+        SELECT id FROM gex_history 
+        WHERE ticker = ? AND date(timestamp, 'localtime') = ? AND timestamp >= ?
+        ORDER BY timestamp ASC LIMIT 1
+    ''', (ticker, date_str, market_open))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+        
+    first_id = row[0]
+    cursor.execute('''
+        SELECT strike, gex FROM strike_history
+        WHERE gex_history_id = ?
+    ''', (first_id,))
+    
+    open_data = {}
+    for strike, gex in cursor.fetchall():
+        open_data[strike] = gex
+        
+    conn.close()
+    return open_data
+
 def get_historical_gex(ticker: str, date_str: str = None):
     """
     Returns an array of GEX profiles for a specific date (defaults to today).
@@ -171,12 +210,39 @@ def get_historical_gex(ticker: str, date_str: str = None):
             strikes_by_id[hid] = []
         strikes_by_id[hid].append(s)
         
+    # Get open data from the first record on or after market open
+    open_data = {}
+    if history_records:
+        market_open = get_market_open_utc(date_str)
+        first_rec_id = history_records[0]["id"] # fallback
+        for rec in history_records:
+            if rec["timestamp"] >= market_open:
+                first_rec_id = rec["id"]
+                break
+                
+        for s in strikes_by_id.get(first_rec_id, []):
+            open_data[s["strike"]] = s["gex"]
+            
     for rec in history_records:
         rec_id = rec["id"]
         strikes = strikes_by_id.get(rec_id, [])
         
-        most_positive = [{"strike": s["strike"], "gex": s["gex"]} for s in strikes if s["gex"] >= 0]
-        most_negative = [{"strike": s["strike"], "gex": s["gex"]} for s in strikes if s["gex"] < 0]
+        most_positive = []
+        most_negative = []
+        for s in strikes:
+            strike = s["strike"]
+            gex = s["gex"]
+            open_val = open_data.get(strike, 0)
+            pct_change = 0.0
+            if open_val != 0:
+                pct_change = ((gex - open_val) / abs(open_val)) * 100.0
+                
+            item = {"strike": strike, "gex": gex, "open_gex_pct": round(pct_change, 2)}
+            if gex >= 0:
+                most_positive.append(item)
+            else:
+                most_negative.append(item)
+                
         premium_data = [{"strike": s["strike"], "call_premium": s["call_premium"], "put_premium": s["put_premium"]} for s in strikes]
         
         # Sort them as expected by frontend

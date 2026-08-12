@@ -63,6 +63,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 latest_gex_payloads = {}
 active_tickers = {"SPY", "QQQ", "SPX"}
+daily_open_gex = {} # Format: {"YYYY-MM-DD": {"SPY": {500: 1000, 505: -2000}}}
 
 async def background_gex_polling():
     while True:
@@ -311,9 +312,35 @@ def get_gex_payload(ticker: str, snapshot_date: str = None):
     total_gex, gex_by_strike, spot_price, strike_premium = calculate_gex(data)
     zero_gamma = calculate_zero_gamma_level(data, spot_price)
     
+    today_str = snapshot_date if snapshot_date else get_0dte_date()
+    
+    if today_str not in daily_open_gex:
+        daily_open_gex[today_str] = {}
+        
+    if ticker not in daily_open_gex[today_str]:
+        open_data = db.get_open_gex_for_date(ticker, today_str)
+        if open_data:
+            daily_open_gex[today_str][ticker] = open_data
+        else:
+            daily_open_gex[today_str][ticker] = dict(gex_by_strike)
+            
+    open_gex_cache = daily_open_gex[today_str][ticker]
+
     sorted_strikes = sorted(gex_by_strike.items(), key=lambda item: item[1])
-    most_negative = [{"strike": k, "gex": v} for k, v in sorted_strikes if v < 0]
-    most_positive = [{"strike": k, "gex": v} for k, v in sorted_strikes if v >= 0]
+    most_negative = []
+    most_positive = []
+    
+    for k, v in sorted_strikes:
+        open_val = open_gex_cache.get(k, 0)
+        pct_change = 0.0
+        if open_val != 0:
+            pct_change = ((v - open_val) / abs(open_val)) * 100.0
+            
+        item = {"strike": k, "gex": v, "open_gex_pct": round(pct_change, 2)}
+        if v < 0:
+            most_negative.append(item)
+        else:
+            most_positive.append(item)
     
     premium_data = [
         {"strike": k, "call_premium": v["call_premium"], "put_premium": v["put_premium"]}

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 interface GexItem {
   strike: number;
   gex: number;
+  open_gex_pct?: number;
 }
 
 interface GexData {
@@ -141,6 +142,15 @@ export const GexTable = ({ activeCharts = ['primary'] }: { activeCharts?: string
                         }} />
                         <span style={{ position: 'relative', zIndex: 1 }}>
                           {isPositive ? '+' : ''}{formatGex(item.gex, 2)}
+                          {item.open_gex_pct !== undefined && item.open_gex_pct !== 0 && (
+                            <span style={{ 
+                              marginLeft: '8px', 
+                              fontSize: '11px', 
+                              color: item.open_gex_pct > 0 ? '#00ff66' : '#ff2a55'
+                            }}>
+                              {item.open_gex_pct > 0 ? '+' : ''}{item.open_gex_pct}%
+                            </span>
+                          )}
                         </span>
                       </td>
                     </tr>
